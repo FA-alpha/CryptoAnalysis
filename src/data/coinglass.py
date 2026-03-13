@@ -15,7 +15,11 @@ class CoinglassClient:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.base_url = "https://open-api-v4.coinglass.com/api"
-        self.headers = {"coinglassSecret": api_key}
+        # V4 API 使用 CG-API-KEY 请求头
+        self.headers = {
+            "accept": "application/json",
+            "CG-API-KEY": api_key
+        }
     
     async def _request(self, endpoint: str, params: Dict = None) -> Dict:
         """发送 API 请求"""
