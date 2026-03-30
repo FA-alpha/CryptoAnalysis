@@ -150,10 +150,103 @@
 
 | 数据类型 | 存储方案 | 说明 |
 |---------|---------|------|
-| 时序数据 (K线、OI、FR等) | TimescaleDB / InfluxDB | 高效时间范围查询 |
-| 地址画像 | PostgreSQL | 结构化查询 |
-| 实时信号 | Redis | 低延迟读写 |
-| 回测结果 | PostgreSQL | 持久化存储 |
+| 时序数据 (K线、OI、FR、清算等) | **InfluxDB** | 高效时间范围查询、聚合计算 |
+| 地址画像 / 交易员统计 | **MySQL** | 结构化查询，团队熟悉 |
+| 实时信号 / 缓存 | **Redis** | 低延迟读写 |
+| 回测结果 / 策略配置 | **MySQL** | 持久化存储 |
+
+### 存储架构图
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      数据采集层                          │
+│  CoinGlass API  |  HyperBot API  |  WebSocket 实时流    │
+└─────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                      数据存储层                          │
+├─────────────────┬─────────────────┬─────────────────────┤
+│   InfluxDB      │     MySQL       │      Redis          │
+│   (时序数据)     │   (业务数据)     │    (实时缓存)        │
+├─────────────────┼─────────────────┼─────────────────────┤
+│ • K线 (1m)      │ • 地址画像      │ • 最新价格          │
+│ • OI (1m)       │ • 交易员统计    │ • 实时信号          │
+│ • Funding Rate  │ • 策略配置      │ • 挂单分布快照      │
+│ • 清算 (1m)     │ • 回测结果      │ • 鲸鱼仓位快照      │
+│ • Long/Short    │ • 跟单目标列表  │                     │
+│ • Taker Volume  │                 │                     │
+│ • 鲸鱼多空比    │                 │                     │
+└─────────────────┴─────────────────┴─────────────────────┘
+```
+
+### 时序数据表设计 (InfluxDB)
+
+```
+Measurement: kline_1m
+Tags: symbol
+Fields: open, high, low, close, volume, taker_buy_vol, taker_sell_vol
+
+Measurement: open_interest
+Tags: symbol, exchange
+Fields: value
+
+Measurement: funding_rate
+Tags: symbol, exchange  
+Fields: rate
+
+Measurement: liquidation
+Tags: symbol, side (long/short)
+Fields: amount, count
+
+Measurement: long_short_ratio
+Tags: symbol
+Fields: ratio
+
+Measurement: whale_long_short
+Tags: symbol
+Fields: ratio, long_count, short_count
+```
+
+### 业务数据表设计 (MySQL)
+
+```sql
+-- 地址画像
+CREATE TABLE trader_profile (
+    address VARCHAR(42) PRIMARY KEY,
+    win_rate DECIMAL(5,4),
+    total_pnl DECIMAL(20,8),
+    max_drawdown DECIMAL(5,4),
+    avg_holding_seconds INT,
+    trade_count INT,
+    last_trade_at DATETIME,
+    updated_at DATETIME
+);
+
+-- 跟单目标
+CREATE TABLE follow_targets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    address VARCHAR(42),
+    strategy_name VARCHAR(50),
+    weight DECIMAL(3,2),
+    enabled TINYINT(1),
+    created_at DATETIME
+);
+
+-- 回测结果
+CREATE TABLE backtest_results (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    strategy_name VARCHAR(50),
+    params JSON,
+    start_date DATE,
+    end_date DATE,
+    total_return DECIMAL(10,4),
+    sharpe_ratio DECIMAL(6,4),
+    max_drawdown DECIMAL(5,4),
+    win_rate DECIMAL(5,4),
+    created_at DATETIME
+);
+```
 
 ---
 
@@ -243,6 +336,7 @@ Body: addresses[]
 |------|------|---------|
 | v1.0 | 2026-03-30 | 初版，整理数据需求方案 |
 | v1.1 | 2026-03-30 | 确认 HyperBot 接口范围，明确数据缺口及自建方案 |
+| v1.2 | 2026-03-30 | 存储方案改为 MySQL + InfluxDB，添加表结构设计 |
 
 ---
 
