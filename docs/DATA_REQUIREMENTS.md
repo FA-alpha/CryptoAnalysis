@@ -148,6 +148,240 @@
 
 ## 八、数据存储方案
 
+### 8.1 方案 A：纯 MySQL（当前采用）✅
+
+**适用场景：** MVP 阶段、<10 币种、快速验证策略
+
+| 数据类型 | 存储方案 | 说明 |
+|---------|---------|------|
+| 时序数据 (K线、OI、FR、清算等) | **MySQL** | 分表存储，按时间分区 |
+| 地址画像 / 交易员统计 | **MySQL** | 结构化查询 |
+| 实时缓存 | **应用层内存** | Python dict / LRU Cache |
+| 回测结果 / 策略配置 | **MySQL** | 持久化存储 |
+
+#### 纯 MySQL 架构图
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      数据采集层                          │
+│  CoinGlass API  |  HyperBot API  |  WebSocket 实时流    │
+└─────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                   AWS RDS MySQL                          │
+├─────────────────────────────────────────────────────────┤
+│  时序数据表          │  业务数据表                        │
+│  ─────────────       │  ─────────────                    │
+│  • kline_1m_*       │  • trader_profile                 │
+│  • open_interest_*  │  • follow_targets                 │
+│  • funding_rate     │  • backtest_results               │
+│  • liquidation_*    │  • strategy_config                │
+│  • long_short_ratio │                                   │
+│  • taker_volume_*   │                                   │
+│  • whale_ratio      │                                   │
+│  (* = 按月分表)      │                                   │
+└─────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                   应用服务器 (EC2)                       │
+├─────────────────────────────────────────────────────────┤
+│  • 数据采集服务                                          │
+│  • 策略引擎                                              │
+│  • 内存缓存 (最新价格、实时信号)                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### MySQL 时序数据表设计
+
+```sql
+-- ============================================
+-- 时序数据表 (建议按月分表，如 kline_1m_202603)
+-- ============================================
+
+-- K线数据 (1分钟)
+CREATE TABLE kline_1m (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    open_time DATETIME NOT NULL,
+    open DECIMAL(20,8),
+    high DECIMAL(20,8),
+    low DECIMAL(20,8),
+    close DECIMAL(20,8),
+    volume DECIMAL(20,8),
+    taker_buy_vol DECIMAL(20,8),
+    taker_sell_vol DECIMAL(20,8),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_symbol_time (symbol, open_time),
+    KEY idx_open_time (open_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+PARTITION BY RANGE (TO_DAYS(open_time)) (
+    PARTITION p202601 VALUES LESS THAN (TO_DAYS('2026-02-01')),
+    PARTITION p202602 VALUES LESS THAN (TO_DAYS('2026-03-01')),
+    PARTITION p202603 VALUES LESS THAN (TO_DAYS('2026-04-01')),
+    PARTITION p202604 VALUES LESS THAN (TO_DAYS('2026-05-01')),
+    PARTITION p_future VALUES LESS THAN MAXVALUE
+);
+
+-- Open Interest
+CREATE TABLE open_interest (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    exchange VARCHAR(20) NOT NULL DEFAULT 'all',
+    record_time DATETIME NOT NULL,
+    value DECIMAL(20,8),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_symbol_exchange_time (symbol, exchange, record_time),
+    KEY idx_record_time (record_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Funding Rate
+CREATE TABLE funding_rate (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    exchange VARCHAR(20) NOT NULL DEFAULT 'all',
+    record_time DATETIME NOT NULL,
+    rate DECIMAL(12,8),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_symbol_exchange_time (symbol, exchange, record_time),
+    KEY idx_record_time (record_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 清算数据
+CREATE TABLE liquidation (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    record_time DATETIME NOT NULL,
+    side ENUM('long', 'short') NOT NULL,
+    amount DECIMAL(20,8),
+    count INT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_symbol_time (symbol, record_time),
+    KEY idx_record_time (record_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Long/Short Ratio
+CREATE TABLE long_short_ratio (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    record_time DATETIME NOT NULL,
+    ratio DECIMAL(10,6),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_symbol_time (symbol, record_time),
+    KEY idx_record_time (record_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Taker Buy/Sell Volume
+CREATE TABLE taker_volume (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    record_time DATETIME NOT NULL,
+    buy_vol DECIMAL(20,8),
+    sell_vol DECIMAL(20,8),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_symbol_time (symbol, record_time),
+    KEY idx_record_time (record_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 鲸鱼多空比
+CREATE TABLE whale_ratio (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    record_time DATETIME NOT NULL,
+    ratio DECIMAL(10,6),
+    long_count INT,
+    short_count INT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_symbol_time (symbol, record_time),
+    KEY idx_record_time (record_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 挂单分布快照 (自建)
+CREATE TABLE order_book_snapshot (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    snapshot_time DATETIME NOT NULL,
+    bid_wall DECIMAL(20,8),
+    ask_wall DECIMAL(20,8),
+    bid_count INT,
+    ask_count INT,
+    whale_bid_ratio DECIMAL(5,4),
+    whale_ask_ratio DECIMAL(5,4),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_symbol_time (symbol, snapshot_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
+-- 业务数据表
+-- ============================================
+
+-- 地址画像
+CREATE TABLE trader_profile (
+    address VARCHAR(42) PRIMARY KEY,
+    win_rate DECIMAL(5,4),
+    total_pnl DECIMAL(20,8),
+    max_drawdown DECIMAL(5,4),
+    avg_holding_seconds INT,
+    trade_count INT,
+    last_trade_at DATETIME,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 跟单目标
+CREATE TABLE follow_targets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    address VARCHAR(42) NOT NULL,
+    strategy_name VARCHAR(50),
+    weight DECIMAL(3,2) DEFAULT 1.00,
+    enabled TINYINT(1) DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_address (address)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 回测结果
+CREATE TABLE backtest_results (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    strategy_name VARCHAR(50) NOT NULL,
+    params JSON,
+    start_date DATE,
+    end_date DATE,
+    total_return DECIMAL(10,4),
+    sharpe_ratio DECIMAL(6,4),
+    max_drawdown DECIMAL(5,4),
+    win_rate DECIMAL(5,4),
+    trade_count INT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_strategy (strategy_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 策略配置
+CREATE TABLE strategy_config (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    strategy_name VARCHAR(50) NOT NULL UNIQUE,
+    config JSON,
+    enabled TINYINT(1) DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+#### MySQL 性能优化建议
+
+1. **分区表** - 时序数据按月分区，便于历史数据归档
+2. **索引优化** - 时间字段 + symbol 联合索引
+3. **批量写入** - 使用 `INSERT ... ON DUPLICATE KEY UPDATE` 批量插入
+4. **读写分离** - 如有需要，RDS 支持只读副本
+5. **定期归档** - 超过 6 个月的数据可以导出到 S3
+
+---
+
+### 8.2 方案 B：MySQL + InfluxDB + Redis（升级方案）
+
+**适用场景：** 生产环境、多币种、高频数据、低延迟要求
+
+> ⚠️ 此方案保留供后续升级使用，当数据量增大或性能不足时再部署。
+
 | 数据类型 | 存储方案 | 说明 |
 |---------|---------|------|
 | 时序数据 (K线、OI、FR、清算等) | **InfluxDB** | 高效时间范围查询、聚合计算 |
@@ -155,7 +389,7 @@
 | 实时信号 / 缓存 | **Redis** | 低延迟读写 |
 | 回测结果 / 策略配置 | **MySQL** | 持久化存储 |
 
-### 存储架构图
+#### 升级版架构图
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -180,7 +414,25 @@
 └─────────────────┴─────────────────┴─────────────────────┘
 ```
 
-### 时序数据表设计 (InfluxDB)
+#### InfluxDB 部署 (Docker)
+
+```bash
+# 在 EC2 上一键部署
+docker run -d \
+  --name influxdb \
+  -p 8086:8086 \
+  -v influxdb-data:/var/lib/influxdb2 \
+  influxdb:2.7
+
+# Redis 部署
+docker run -d \
+  --name redis \
+  -p 6379:6379 \
+  -v redis-data:/data \
+  redis:7-alpine
+```
+
+#### InfluxDB Measurement 设计
 
 ```
 Measurement: kline_1m
@@ -208,45 +460,14 @@ Tags: symbol
 Fields: ratio, long_count, short_count
 ```
 
-### 业务数据表设计 (MySQL)
+#### 升级时机判断
 
-```sql
--- 地址画像
-CREATE TABLE trader_profile (
-    address VARCHAR(42) PRIMARY KEY,
-    win_rate DECIMAL(5,4),
-    total_pnl DECIMAL(20,8),
-    max_drawdown DECIMAL(5,4),
-    avg_holding_seconds INT,
-    trade_count INT,
-    last_trade_at DATETIME,
-    updated_at DATETIME
-);
-
--- 跟单目标
-CREATE TABLE follow_targets (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    address VARCHAR(42),
-    strategy_name VARCHAR(50),
-    weight DECIMAL(3,2),
-    enabled TINYINT(1),
-    created_at DATETIME
-);
-
--- 回测结果
-CREATE TABLE backtest_results (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    strategy_name VARCHAR(50),
-    params JSON,
-    start_date DATE,
-    end_date DATE,
-    total_return DECIMAL(10,4),
-    sharpe_ratio DECIMAL(6,4),
-    max_drawdown DECIMAL(5,4),
-    win_rate DECIMAL(5,4),
-    created_at DATETIME
-);
-```
+| 指标 | 当前方案可支撑 | 需要升级 |
+|------|--------------|---------|
+| 币种数量 | < 20 | > 20 |
+| 数据查询延迟 | < 500ms | > 500ms |
+| 日数据量 | < 100万行 | > 100万行 |
+| 实时信号延迟 | < 1s | < 100ms |
 
 ---
 
@@ -337,6 +558,7 @@ Body: addresses[]
 | v1.0 | 2026-03-30 | 初版，整理数据需求方案 |
 | v1.1 | 2026-03-30 | 确认 HyperBot 接口范围，明确数据缺口及自建方案 |
 | v1.2 | 2026-03-30 | 存储方案改为 MySQL + InfluxDB，添加表结构设计 |
+| v1.3 | 2026-03-30 | 采用纯 MySQL 方案 (方案A)，保留升级方案 (方案B) |
 
 ---
 
