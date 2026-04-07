@@ -1,6 +1,6 @@
 # =============================================
-# CryptoAnalysis 配置模板
-# 复制此文件为 config.yaml 并填写实际值
+# CryptoAnalysis 主配置文件
+# 项目：Hyperliquid 反脆弱策略系统
 # =============================================
 
 # Hyperliquid API
@@ -14,49 +14,72 @@ hyperliquid:
 
 # 数据采集配置
 data_collection:
+  # 初始获取交易数据量
   initial_fills_limit: 2000
+  # 是否分页获取更多数据（暂不启用）
   enable_pagination: false
+  # 批量插入大小
   batch_insert_size: 500
 
 # 监控配置
 monitoring:
+  # 实时监控间隔（秒）
   realtime_interval_seconds: 60
+  # 定期维护间隔（秒）- 4小时
   maintenance_interval_seconds: 14400
+  # 监控超时（秒）
   check_timeout_seconds: 30
 
 # 特征计算配置
 feature_calculation:
+  # 最小交易次数（不足则跳过）
   min_trades: 10
+  # 数据窗口（天）
   lookback_days: 90
+  # 持仓时间单位（秒）
   holding_time_unit: seconds
 
 # 评分模型配置
 scoring:
+  # 风险行为评分 /40
   risk_behavior_weight: 40
+  # 亏损特征评分 /35
   loss_feature_weight: 35
+  # 心态特征评分 /25
   mentality_weight: 25
+  
+  # 脆弱等级阈值
   fragile_levels:
-    L1: 80
-    L2: 60
-    L3: 40
-    L4: 0
+    L1: 80  # >= 80 分
+    L2: 60  # >= 60 分
+    L3: 40  # >= 40 分
+    L4: 0   # < 40 分
 
 # 脆弱地址池配置
 fragile_pool:
+  # 池子最大容量
   max_pool_size: 100
+  # 入池最低等级
   min_entry_level: L2
+  # 出池条件：连续N天无交易
   exit_inactive_days: 7
 
 # 信号生成配置
 signal_generation:
+  # 信号执行策略：signal_only（仅生成信号）
   execution_mode: signal_only
+  # 信号权重计算方式：by_fragile_level
   weight_method: by_fragile_level
+  # 信号过期时间（分钟）
   signal_expiry_minutes: 30
 
 # 通知配置
 notifications:
+  # 启用飞书通知
   enable_lark: true
+  # 启用 Telegram 通知（暂不启用）
   enable_telegram: false
+  # 通知内容级别：summary / detailed
   notification_level: summary
 
 # 日志配置
@@ -64,8 +87,9 @@ logging:
   level: INFO
   format: "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
   file: logs/app.log
-  max_bytes: 10485760
+  max_bytes: 10485760  # 10MB
   backup_count: 5
+  # 控制台输出
   console_output: true
 
 # 数据库连接池配置

@@ -1,63 +1,37 @@
 # Python
-__pycache__/
 *.py[cod]
-*$py.class
+__pycache__/
 *.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
 *.egg
-
-# Virtual Environment
+*.egg-info
+dist/
+build/
 venv/
-ENV/
 env/
-.venv/
+.Python
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-.project
-.pydevproject
-.settings/
-
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb_checkpoints
-
-# Config (contains API keys)
-config/config.yaml
+# 敏感配置
+config/.env
 .env
 
-# Data
-data/
-*.db
-*.sqlite
-
-# Logs
+# 日志
 logs/
 *.log
 
-# OS
-.DS_Store
-Thumbs.db
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# Cache
-.cache/
-.pytest_cache/
-.mypy_cache/
+# 数据库备份
+*.sql.gz
+*.dump
+
+# macOS
+.DS_Store
+
+# 临时文件
+*.tmp
+*.bak
