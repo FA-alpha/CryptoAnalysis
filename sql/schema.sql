@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS hl_position_snapshots (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     address VARCHAR(66) NOT NULL COMMENT '钱包地址',
     snapshot_time BIGINT NOT NULL COMMENT '快照时间戳(毫秒)',
+    snapshot_date DATE NULL COMMENT '快照代表的日期（00:03定时=前一天，手动执行=当天）',
     account_value DECIMAL(20, 6) NOT NULL COMMENT '账户总价值',
     total_margin_used DECIMAL(20, 6) NOT NULL COMMENT '已用保证金',
     total_raw_usd DECIMAL(20, 6) COMMENT '钱包余额/USD净余额(可为负)',

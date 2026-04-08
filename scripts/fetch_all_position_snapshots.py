@@ -6,7 +6,7 @@ import sys
 import os
 from typing import List, Dict, Optional
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -15,6 +15,9 @@ from hyperliquid.info import Info
 from utils.db_utils import get_connection
 
 HYPERLIQUID_API_URL = "https://api.hyperliquid.xyz/info"
+
+# 定时任务执行时间窗口（北京时间 00:00 - 00:59），用于判断 snapshot_date
+SCHEDULED_HOUR = 0
 
 
 def get_active_addresses() -> List[tuple]:
@@ -114,7 +117,27 @@ def fetch_portfolio_pnl(address: str) -> Dict[str, Optional[float]]:
     return result
 
 
-def save_snapshot(address: str, state: Dict, pnl: Dict) -> bool:
+def resolve_snapshot_date(now: Optional[datetime] = None) -> date:
+    """
+    根据当前时间判断 snapshot_date：
+    - 北京时间 00:xx（定时窗口）→ 前一天（代表昨日收盘数据）
+    - 其他时间（手动执行）→ 当天
+
+    Args:
+        now: 当前时间，None 则取系统时间
+
+    Returns:
+        snapshot_date
+    """
+    if now is None:
+        now = datetime.now()
+
+    if now.hour == SCHEDULED_HOUR:
+        return (now - timedelta(days=1)).date()
+    return now.date()
+
+
+def save_snapshot(address: str, state: Dict, pnl: Dict, snapshot_date: date) -> bool:
     """
     保存持仓快照到数据库
 
@@ -122,6 +145,7 @@ def save_snapshot(address: str, state: Dict, pnl: Dict) -> bool:
         address: 钱包地址
         state: clearinghouseState 数据
         pnl: portfolio PnL 数据 {'pnl_day', 'pnl_week', 'pnl_month', 'pnl_all_time'}
+        snapshot_date: 快照代表的日期
 
     Returns:
         是否保存成功
@@ -134,42 +158,61 @@ def save_snapshot(address: str, state: Dict, pnl: Dict) -> bool:
         margin = state.get('marginSummary', {})
         snapshot_time = state.get('time')
 
-        # 插入账户快照（含 PnL）
+        pnl_day_val = Decimal(str(pnl['pnl_day'])) if pnl['pnl_day'] is not None else None
+        pnl_week_val = Decimal(str(pnl['pnl_week'])) if pnl['pnl_week'] is not None else None
+        pnl_month_val = Decimal(str(pnl['pnl_month'])) if pnl['pnl_month'] is not None else None
+        pnl_all_time_val = Decimal(str(pnl['pnl_all_time'])) if pnl['pnl_all_time'] is not None else None
+        account_value_val = Decimal(str(margin.get('accountValue', 0)))
+        total_margin_used_val = Decimal(str(margin.get('totalMarginUsed', 0)))
+        total_raw_usd_val = Decimal(str(margin.get('totalRawUsd', 0)))
+        total_ntl_pos_val = Decimal(str(margin.get('totalNtlPos', 0)))
+        withdrawable_val = Decimal(str(state.get('withdrawable', 0)))
+
+        # 检查该地址当天是否已有 snapshot_date 记录（定时任务 UPDATE，手动 INSERT IGNORE）
         cursor.execute('''
-            INSERT IGNORE INTO hl_position_snapshots
-            (address, snapshot_time, account_value, total_margin_used,
-             total_raw_usd, total_ntl_pos, withdrawable,
-             pnl_day, pnl_week, pnl_month, pnl_all_time)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ''', (
-            address,
-            snapshot_time,
-            Decimal(str(margin.get('accountValue', 0))),
-            Decimal(str(margin.get('totalMarginUsed', 0))),
-            Decimal(str(margin.get('totalRawUsd', 0))),
-            Decimal(str(margin.get('totalNtlPos', 0))),
-            Decimal(str(state.get('withdrawable', 0))),
-            Decimal(str(pnl['pnl_day'])) if pnl['pnl_day'] is not None else None,
-            Decimal(str(pnl['pnl_week'])) if pnl['pnl_week'] is not None else None,
-            Decimal(str(pnl['pnl_month'])) if pnl['pnl_month'] is not None else None,
-            Decimal(str(pnl['pnl_all_time'])) if pnl['pnl_all_time'] is not None else None,
-        ))
-        
-        # 获取 snapshot_id
-        if cursor.rowcount == 0:
-            # 已存在，获取现有 ID
+            SELECT id FROM hl_position_snapshots
+            WHERE address = %s AND snapshot_date = %s
+        ''', (address, snapshot_date))
+        existing = cursor.fetchone()
+
+        if existing:
+            # 定时任务重跑或同日二次执行 → UPDATE 最新数据
+            snapshot_id = existing[0]
             cursor.execute('''
-                SELECT id FROM hl_position_snapshots 
-                WHERE address = %s AND snapshot_time = %s
-            ''', (address, snapshot_time))
-            result = cursor.fetchone()
-            if not result:
-                return False
-            snapshot_id = result[0]
+                UPDATE hl_position_snapshots
+                SET snapshot_time = %s,
+                    account_value = %s, total_margin_used = %s,
+                    total_raw_usd = %s, total_ntl_pos = %s, withdrawable = %s,
+                    pnl_day = %s, pnl_week = %s, pnl_month = %s, pnl_all_time = %s
+                WHERE id = %s
+            ''', (
+                snapshot_time,
+                account_value_val, total_margin_used_val,
+                total_raw_usd_val, total_ntl_pos_val, withdrawable_val,
+                pnl_day_val, pnl_week_val, pnl_month_val, pnl_all_time_val,
+                snapshot_id
+            ))
+            print(f"   🔄 已更新当日快照（snapshot_date={snapshot_date}, id={snapshot_id})")
         else:
+            # 新日期 → INSERT
+            cursor.execute('''
+                INSERT INTO hl_position_snapshots
+                (address, snapshot_time, snapshot_date, account_value, total_margin_used,
+                 total_raw_usd, total_ntl_pos, withdrawable,
+                 pnl_day, pnl_week, pnl_month, pnl_all_time)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ''', (
+                address, snapshot_time, snapshot_date,
+                account_value_val, total_margin_used_val,
+                total_raw_usd_val, total_ntl_pos_val, withdrawable_val,
+                pnl_day_val, pnl_week_val, pnl_month_val, pnl_all_time_val,
+            ))
             snapshot_id = cursor.lastrowid
+            print(f"   ✓ 新增快照（snapshot_date={snapshot_date}, id={snapshot_id})")
         
-        # 插入持仓明细
+        # 更新持仓明细：先删除旧明细，再重新插入（保持与快照数据一致）
+        cursor.execute('DELETE FROM hl_position_details WHERE snapshot_id = %s', (snapshot_id,))
+
         positions = state.get('assetPositions', [])
         if positions:
             for pos_data in positions:
@@ -260,8 +303,12 @@ def main():
         pnl = fetch_portfolio_pnl(address)
         print(f"   📈 今日/周/月/历史 PnL: {pnl['pnl_day']} / {pnl['pnl_week']} / {pnl['pnl_month']} / {pnl['pnl_all_time']}")
 
+        # 判断 snapshot_date
+        snapshot_date = resolve_snapshot_date()
+        print(f"   📅 snapshot_date: {snapshot_date}")
+
         # 保存到数据库
-        if save_snapshot(address, state, pnl):
+        if save_snapshot(address, state, pnl, snapshot_date):
             print(f"   ✅ 保存成功")
             success_count += 1
         else:
