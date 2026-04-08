@@ -1,6 +1,9 @@
 # Hyperliquid SDK
 hyperliquid-python-sdk==0.22.0
 
+# HTTP 客户端
+httpx==0.28.1
+
 # 数据库
 pymysql==1.1.1
 
