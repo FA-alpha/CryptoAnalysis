@@ -75,8 +75,8 @@ venv/bin/python scripts/fetch_address_fills_incremental.py
 |----------------|------|------|
 | **00:00** | fills 增量更新 | 获取当日新增成交记录 |
 | **00:03** | 持仓快照 | `snapshot_date` 自动归为前一天 |
-| **00:30** | 特征计算 | 依赖 fills + 快照数据 |
-| **00:45** | 评分计算 | 依赖特征计算结果 |
+| **00:10** | 特征计算 | 依赖 fills + 快照数据 |
+| **00:20** | 评分计算 | 依赖特征计算结果 |
 
 > 00:03 执行持仓快照时，`snapshot_date` 自动归为**前一天**（代表昨日收盘状态），这是脚本内置的逻辑。
 
@@ -103,11 +103,11 @@ CRON_TZ=Asia/Shanghai
 # 00:03 持仓快照（snapshot_date 自动归为前一天）
 3 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_all_position_snapshots.py >> /opt/CryptoAnalysis/logs/snapshot.log 2>&1
 
-# 00:30 特征计算（依赖 fills + 快照数据）
-30 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_address_features.py >> /opt/CryptoAnalysis/logs/features.log 2>&1
+# 00:10 特征计算（依赖 fills + 快照数据）
+10 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_address_features.py >> /opt/CryptoAnalysis/logs/features.log 2>&1
 
-# 00:45 评分计算（依赖特征计算结果）
-45 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_fragile_scores.py >> /opt/CryptoAnalysis/logs/scores.log 2>&1
+# 00:20 评分计算（依赖特征计算结果）
+20 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_fragile_scores.py >> /opt/CryptoAnalysis/logs/scores.log 2>&1
 ```
 
 > ⚠️ **关键注意事项**：

@@ -186,11 +186,11 @@ CRON_TZ=Asia/Shanghai
 # 00:03 持仓快照
 3 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_all_position_snapshots.py >> /opt/CryptoAnalysis/logs/snapshot.log 2>&1
 
-# 00:30 特征计算
-30 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_address_features.py >> /opt/CryptoAnalysis/logs/features.log 2>&1
+# 00:10 特征计算
+10 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_address_features.py >> /opt/CryptoAnalysis/logs/features.log 2>&1
 
-# 00:45 评分计算
-45 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_fragile_scores.py >> /opt/CryptoAnalysis/logs/scores.log 2>&1
+# 00:20 评分计算
+20 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_fragile_scores.py >> /opt/CryptoAnalysis/logs/scores.log 2>&1
 ```
 
 ---
