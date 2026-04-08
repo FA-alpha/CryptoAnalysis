@@ -71,11 +71,12 @@ venv/bin/python scripts/fetch_address_fills_incremental.py
 
 ### 推荐任务安排
 
-| 任务 | 时间（北京时间） | 说明 |
-|------|----------------|------|
-| 持仓快照 | 每天 **00:03** | `snapshot_date` 自动归为前一天 |
-| fills 增量 | 每天 **00:05** | 获取昨日新增成交记录 |
-| 特征计算 | 每天 **00:30** | 依赖快照和 fills 数据（后期） |
+| 时间（北京时间） | 任务 | 说明 |
+|----------------|------|------|
+| **00:00** | fills 增量更新 | 获取当日新增成交记录 |
+| **00:03** | 持仓快照 | `snapshot_date` 自动归为前一天 |
+| **00:30** | 特征计算 | 依赖 fills + 快照数据 |
+| **00:45** | 评分计算 | 依赖特征计算结果 |
 
 > 00:03 执行持仓快照时，`snapshot_date` 自动归为**前一天**（代表昨日收盘状态），这是脚本内置的逻辑。
 
@@ -96,11 +97,17 @@ crontab -e
 # ============================================================
 CRON_TZ=Asia/Shanghai
 
+# 00:00 fills 增量更新（新地址自动全量，已有地址增量）
+0 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_address_fills_incremental.py >> /opt/CryptoAnalysis/logs/fills.log 2>&1
+
 # 00:03 持仓快照（snapshot_date 自动归为前一天）
 3 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_all_position_snapshots.py >> /opt/CryptoAnalysis/logs/snapshot.log 2>&1
 
-# 00:05 fills 增量更新（新地址自动全量，已有地址增量）
-5 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_address_fills_incremental.py >> /opt/CryptoAnalysis/logs/fills.log 2>&1
+# 00:30 特征计算（依赖 fills + 快照数据）
+30 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_address_features.py >> /opt/CryptoAnalysis/logs/features.log 2>&1
+
+# 00:45 评分计算（依赖特征计算结果）
+45 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_fragile_scores.py >> /opt/CryptoAnalysis/logs/scores.log 2>&1
 ```
 
 > ⚠️ **关键注意事项**：
