@@ -57,19 +57,22 @@ CREATE TABLE IF NOT EXISTS hl_fills (
 
 
 -- =============================================
--- 3. 持仓快照表(汇总)
+-- 3. 持仓快照表(账户级别)
 -- =============================================
 CREATE TABLE IF NOT EXISTS hl_position_snapshots (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     address VARCHAR(66) NOT NULL COMMENT '钱包地址',
-    snapshot_time BIGINT NOT NULL COMMENT 'API 返回的时间戳(ms)',
-    account_value DECIMAL(20, 6) NOT NULL COMMENT '账户价值',
+    snapshot_time BIGINT NOT NULL COMMENT '快照时间戳(毫秒)',
+    account_value DECIMAL(20, 6) NOT NULL COMMENT '账户总价值',
     total_margin_used DECIMAL(20, 6) NOT NULL COMMENT '已用保证金',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入库时间',
+    total_raw_usd DECIMAL(20, 6) COMMENT '钱包余额/USD净余额(可为负)',
+    total_ntl_pos DECIMAL(20, 6) COMMENT '总名义持仓价值',
+    withdrawable DECIMAL(20, 6) COMMENT '可提现金额',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入库时间（北京时间）',
 
-    INDEX idx_address_time (address, snapshot_time DESC),
+    UNIQUE KEY uk_address_time (address, snapshot_time),
     INDEX idx_snapshot_time (snapshot_time)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='持仓快照(汇总)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='持仓快照(账户级别)';
 
 
 -- =============================================
@@ -83,12 +86,14 @@ CREATE TABLE IF NOT EXISTS hl_position_details (
     entry_px DECIMAL(20, 6) NOT NULL COMMENT '开仓均价',
     position_value DECIMAL(20, 6) NOT NULL COMMENT '仓位价值',
     unrealized_pnl DECIMAL(20, 6) DEFAULT 0 COMMENT '未实现盈亏',
-    return_on_equity DECIMAL(10, 6) DEFAULT 0 COMMENT 'ROE',
-    liquidation_px DECIMAL(20, 6) COMMENT '清算价',
+    return_on_equity DECIMAL(10, 6) DEFAULT 0 COMMENT 'ROE(回报率)',
+    liquidation_px DECIMAL(20, 6) COMMENT '清算价(null=无风险)',
     margin_used DECIMAL(20, 6) COMMENT '占用保证金',
     leverage_type VARCHAR(20) COMMENT '杠杆类型:cross/isolated',
-    leverage_value INT COMMENT '杠杆倍数',
-    max_leverage INT COMMENT '最大杠杆',
+    leverage_value INT COMMENT '实际杠杆倍数',
+    max_leverage INT COMMENT '最大允许杠杆',
+    cum_funding_all_time DECIMAL(20, 6) COMMENT '历史累计资金费',
+    cum_funding_since_open DECIMAL(20, 6) COMMENT '开仓后累计资金费',
 
     FOREIGN KEY (snapshot_id) REFERENCES hl_position_snapshots(id) ON DELETE CASCADE,
     INDEX idx_snapshot_coin (snapshot_id, coin),

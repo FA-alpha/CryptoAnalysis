@@ -201,41 +201,73 @@ dt = datetime.fromtimestamp(1770877800000 / 1000)
 }
 ```
 
-### **响应示例**
+### **响应示例（真实数据）**
 
 ```json
 {
+  "marginSummary": {
+    "accountValue": "1.020216",
+    "totalNtlPos": "0.722728",
+    "totalRawUsd": "0.311248",
+    "totalMarginUsed": "0.072272"
+  },
+  "crossMarginSummary": {
+    "accountValue": "1.020216",
+    "totalNtlPos": "0.722728",
+    "totalRawUsd": "0.311248",
+    "totalMarginUsed": "0.072272"
+  },
+  "crossMaintenanceMarginUsed": "0.036136",
+  "withdrawable": "0.947944",
   "assetPositions": [
     {
+      "type": "oneWay",
       "position": {
-        "coin": "ETH",
-        "entryPx": "2100.5",
-        "szi": "10.5",
+        "coin": "FARTCOIN",
+        "szi": "4.2",
         "leverage": {
           "type": "cross",
-          "value": 20
+          "value": 10
         },
-        "liquidationPx": "1500.2",
-        "marginUsed": "5000.0",
-        "positionValue": "22050.25",
-        "unrealizedPnl": "500.0",
-        "returnOnEquity": "0.1"
-      },
-      "type": "oneWay"
+        "entryPx": "0.17468",
+        "positionValue": "0.715848",
+        "unrealizedPnl": "-0.017808",
+        "returnOnEquity": "-0.2427295626",
+        "liquidationPx": null,
+        "marginUsed": "0.071584",
+        "maxLeverage": 10,
+        "cumFunding": {
+          "allTime": "-20239.799592",
+          "sinceOpen": "0.001983",
+          "sinceChange": "0.001983"
+        }
+      }
+    },
+    {
+      "type": "oneWay",
+      "position": {
+        "coin": "PUMP",
+        "szi": "-4.0",
+        "leverage": {
+          "type": "cross",
+          "value": 10
+        },
+        "entryPx": "0.001866",
+        "positionValue": "0.00688",
+        "unrealizedPnl": "0.000585",
+        "returnOnEquity": "0.7836570663",
+        "liquidationPx": "0.2360247619",
+        "marginUsed": "0.000688",
+        "maxLeverage": 10,
+        "cumFunding": {
+          "allTime": "-2662.879366",
+          "sinceOpen": "-2662.879366",
+          "sinceChange": "0.0"
+        }
+      }
     }
   ],
-  "crossMarginSummary": {
-    "accountValue": "50000.0",
-    "totalMarginUsed": "10000.0",
-    "totalNtlPos": "22050.25",
-    "totalRawUsd": "50000.0"
-  },
-  "marginSummary": {
-    "accountValue": "50000.0",
-    "totalMarginUsed": "10000.0"
-  },
-  "withdrawable": "40000.0",
-  "time": 1775543005352
+  "time": 1775552898004
 }
 ```
 
@@ -243,27 +275,91 @@ dt = datetime.fromtimestamp(1770877800000 / 1000)
 
 #### **持仓信息 (assetPositions)**
 
-| 字段 | 说明 |
-|------|------|
-| coin | 币种 |
-| entryPx | 开仓均价 |
-| szi | 持仓数量（正=多，负=空） |
-| leverage.type | 杠杆类型：`cross`（全仓）/ `isolated`（逐仓） |
-| leverage.value | 杠杆倍数 |
-| liquidationPx | 清算价格 |
-| marginUsed | 已用保证金 |
-| positionValue | 仓位价值 |
-| unrealizedPnl | 未实现盈亏 |
-| returnOnEquity | 回报率 (ROE) |
+| 字段 | 类型 | 说明 | 示例值 |
+|------|------|------|--------|
+| **coin** | string | 币种 | `"FARTCOIN"`, `"PUMP"` |
+| **szi** | string | 持仓数量（正=多，负=空） | `"4.2"`, `"-4.0"` |
+| **entryPx** | string | 开仓均价 | `"0.17468"` |
+| **positionValue** | string | 仓位价值 | `"0.715848"` |
+| **unrealizedPnl** | string | 未实现盈亏 | `"-0.017808"`, `"0.000585"` |
+| **returnOnEquity** | string | 回报率 (ROE) | `"-0.2427295626"` |
+| **liquidationPx** | string/null | 清算价格（null=无风险） | `"0.2360247619"`, `null` |
+| **marginUsed** | string | 已用保证金 | `"0.071584"` |
+| **maxLeverage** | number | 最大允许杠杆 | `10` |
+| **leverage.type** | string | 杠杆类型 | `"cross"`（全仓）, `"isolated"`（逐仓） |
+| **leverage.value** | number | 实际杠杆倍数 | `10` |
+| **cumFunding.allTime** | string | 历史累计资金费 | `"-20239.799592"` |
+| **cumFunding.sinceOpen** | string | 开仓后累计资金费 | `"0.001983"` |
+| **cumFunding.sinceChange** | string | 上次调整后的资金费 | `"0.001983"` |
 
-#### **账户汇总 (crossMarginSummary)**
+#### **账户汇总 (marginSummary / crossMarginSummary)**
 
-| 字段 | 说明 |
-|------|------|
-| accountValue | 账户总价值 |
-| totalMarginUsed | 总已用保证金 |
-| totalNtlPos | 总名义持仓价值 |
-| withdrawable | 可提现金额 |
+| 字段 | 类型 | 说明 | 示例值 |
+|------|------|------|--------|
+| **accountValue** | string | 账户总价值 | `"1.020216"` |
+| **totalMarginUsed** | string | 总已用保证金 | `"0.072272"` |
+| **totalRawUsd** | string | 钱包余额 / USD 净余额（可能为负）⚠️ | `"0.311248"`, `"-18153503.342439"` |
+| **totalNtlPos** | string | 总名义持仓价值 | `"0.722728"` |
+| **withdrawable** | string | 可提现金额 | `"0.947944"` |
+| **time** | number | 快照时间戳（毫秒） | `1775552898004` |
+
+### **关键字段解释**
+
+#### **totalRawUsd（钱包余额 / USD 净余额）**
+
+**官方定义**：
+> The total raw USD value in the user's account. This represents the user's **wallet balance**, which can be negative if they have realized losses exceeding their initial deposits.
+
+**中文翻译**：
+> 用户账户中的 USD 总余额。这代表用户的**钱包余额**，如果已实现的亏损超过初始存款，该值可能为负。
+
+**计算公式**：
+```
+totalRawUsd = 所有存入
+            - 所有提现
+            + 所有已平仓盈利
+            - 所有已平仓亏损
+            - 所有手续费
+            - 所有资金费率支出
+            + 所有资金费率收入
+
+本质：
+totalRawUsd = 钱包当前余额（不含未平仓持仓）
+```
+
+**为什么会是负数？**
+
+当账户的**历史累计亏损超过初始本金**时，`totalRawUsd` 就会为负数。
+
+**真实案例**：
+```
+account_value = 1,342,454.16 USDC       -- 当前账户总价值
+total_raw_usd = -18,153,503.34 USDC     -- 钱包余额（负数！）
+total_ntl_pos = 19,495,957.50 USDC      -- 总名义持仓价值
+
+计算关系：
+account_value = total_raw_usd + unrealized_pnl
+1,342,454.16 = -18,153,503.34 + 19,495,957.50 ✅
+```
+
+**这意味着**：
+- 用户**历史累计亏损 1815 万 USDC**（超过初始本金）
+- 但通过**当前持仓的未实现盈亏 +1949 万**，账户仍有净值 134 万
+- 这是一个**高杠杆、高风险、高收益**的账户
+
+**风险分级**：
+
+| totalRawUsd | 风险等级 | 说明 |
+|-------------|----------|------|
+| > 0 | 🟢 低风险 | 历史盈利 |
+| 0 到 -50% 初始本金 | 🟡 中风险 | 历史小幅亏损 |
+| < -50% 初始本金 | 🔴 高风险 | 历史严重亏损，依赖未实现盈亏 |
+| **< -1000% 初始本金** | 💀 **极高风险** | **历史亏损超过本金 10 倍以上** |
+
+**建议**：
+- ✅ 保留此字段（反映账户真实历史表现）
+- ✅ 用于计算**历史累计盈亏**
+- ✅ 识别**高风险账户**（反脆弱策略的重要指标）
 
 ---
 
@@ -497,11 +593,125 @@ db.executemany(
 
 ---
 
+## 💾 clearinghouseState 数据库存储
+
+### **表 1：hl_position_snapshots（账户级别快照）**
+
+```sql
+CREATE TABLE hl_position_snapshots (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    address VARCHAR(66) NOT NULL,
+    snapshot_time BIGINT NOT NULL,              -- time
+    account_value DECIMAL(20,6) NOT NULL,       -- marginSummary.accountValue
+    total_margin_used DECIMAL(20,6) NOT NULL,   -- marginSummary.totalMarginUsed
+    total_raw_usd DECIMAL(20,6),                -- marginSummary.totalRawUsd
+    total_ntl_pos DECIMAL(20,6),                -- marginSummary.totalNtlPos
+    withdrawable DECIMAL(20,6),                 -- withdrawable
+    created_at DATETIME NOT NULL,
+    
+    UNIQUE KEY uk_address_time (address, snapshot_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+### **表 2：hl_position_details（持仓明细）**
+
+```sql
+CREATE TABLE hl_position_details (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    snapshot_id BIGINT NOT NULL,                -- 外键关联 hl_position_snapshots.id
+    coin VARCHAR(20) NOT NULL,                  -- position.coin
+    szi DECIMAL(20,8) NOT NULL,                 -- position.szi
+    entry_px DECIMAL(20,6) NOT NULL,            -- position.entryPx
+    position_value DECIMAL(20,6),               -- position.positionValue
+    unrealized_pnl DECIMAL(20,6),               -- position.unrealizedPnl
+    return_on_equity DECIMAL(10,6),             -- position.returnOnEquity
+    liquidation_px DECIMAL(20,6),               -- position.liquidationPx
+    margin_used DECIMAL(20,6),                  -- position.marginUsed
+    leverage_type VARCHAR(20),                  -- position.leverage.type
+    leverage_value INT,                         -- position.leverage.value
+    max_leverage INT,                           -- position.maxLeverage
+    cum_funding_all_time DECIMAL(20,6),         -- position.cumFunding.allTime
+    cum_funding_since_open DECIMAL(20,6),       -- position.cumFunding.sinceOpen
+    
+    FOREIGN KEY (snapshot_id) REFERENCES hl_position_snapshots(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+### **字段映射**
+
+#### **hl_position_snapshots**
+
+| API 字段 | 数据库字段 | 类型转换 |
+|----------|-----------|----------|
+| time | snapshot_time | BIGINT（保持毫秒） |
+| marginSummary.accountValue | account_value | DECIMAL(20,6) |
+| marginSummary.totalMarginUsed | total_margin_used | DECIMAL(20,6) |
+| marginSummary.totalRawUsd | total_raw_usd | DECIMAL(20,6) |
+| marginSummary.totalNtlPos | total_ntl_pos | DECIMAL(20,6) |
+| withdrawable | withdrawable | DECIMAL(20,6) |
+
+#### **hl_position_details**
+
+| API 字段 | 数据库字段 | 类型转换 |
+|----------|-----------|----------|
+| position.coin | coin | VARCHAR(20) |
+| position.szi | szi | DECIMAL(20,8) |
+| position.entryPx | entry_px | DECIMAL(20,6) |
+| position.positionValue | position_value | DECIMAL(20,6) |
+| position.unrealizedPnl | unrealized_pnl | DECIMAL(20,6) |
+| position.returnOnEquity | return_on_equity | DECIMAL(10,6) |
+| position.liquidationPx | liquidation_px | DECIMAL(20,6) (null 允许) |
+| position.marginUsed | margin_used | DECIMAL(20,6) |
+| position.leverage.type | leverage_type | VARCHAR(20) |
+| position.leverage.value | leverage_value | INT |
+| position.maxLeverage | max_leverage | INT |
+| position.cumFunding.allTime | cum_funding_all_time | DECIMAL(20,6) |
+| position.cumFunding.sinceOpen | cum_funding_since_open | DECIMAL(20,6) |
+
+### **数据采集策略**
+
+#### **时间序列快照**
+- 每次调用 API 插入**一条新快照**
+- 用于追踪账户价值变化、保证金使用率趋势
+- 唯一约束 `uk_address_time` 防止同一时刻重复
+
+#### **关联关系**
+```
+hl_position_snapshots (1) ←→ (N) hl_position_details
+一个快照包含多个持仓明细（N = 持仓币种数量）
+```
+
+#### **使用场景**
+
+**实时监控**：
+```bash
+# 每 5 分钟采集一次
+*/5 * * * * python scripts/fetch_all_position_snapshots.py
+```
+
+**历史分析**：
+```sql
+-- 查看最近 24 小时的账户价值变化
+SELECT 
+    FROM_UNIXTIME(snapshot_time/1000) as time,
+    account_value,
+    total_margin_used,
+    (total_margin_used / account_value * 100) as margin_ratio
+FROM hl_position_snapshots 
+WHERE address = '0x...'
+  AND snapshot_time > UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 24 HOUR)) * 1000
+ORDER BY snapshot_time ASC;
+```
+
+---
+
 ## 📚 相关文档
 
 - [Hyperliquid 官方文档](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint)
+- [数据库设计](./DATABASE.md)
 - [字段详解](./FILL_FIELDS.md)
 - [时区策略](./TIMEZONE_POLICY.md)
+- [脚本使用](./SCRIPTS.md)
 
 ---
 

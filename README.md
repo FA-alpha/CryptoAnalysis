@@ -23,8 +23,7 @@ CryptoAnalysis/
 │   ├── TIMEZONE_POLICY.md       # 时区策略
 │   └── SCRIPTS.md               # 脚本使用说明
 ├── scripts/                     # 数据采集脚本
-│   ├── fetch_address_fills.py              # 全量获取交易历史
-│   └── fetch_address_fills_incremental.py  # 增量更新（推荐）
+│   └── fetch_address_fills_incremental.py  # 统一采集脚本（全量/增量自动判断）
 ├── utils/                       # 工具类
 │   └── db_utils.py              # 数据库连接工具（自动设置时区）
 ├── sql/                         # SQL 文件
@@ -137,12 +136,13 @@ conn.close()
 
 ### **4. 采集数据**
 
-#### **首次全量获取**
+#### **批量处理所有 active 地址（推荐）**
 ```bash
-python scripts/fetch_address_fills.py 0x020ca66c30bec2c4fe3861a94e4db4a498a35872
+# 自动判断：新地址全量获取 2000 条，已有数据的地址增量更新
+python scripts/fetch_address_fills_incremental.py
 ```
 
-#### **增量更新（推荐）**
+#### **处理单个地址**
 ```bash
 python scripts/fetch_address_fills_incremental.py 0x020ca66c30bec2c4fe3861a94e4db4a498a35872
 ```
@@ -158,6 +158,7 @@ python scripts/fetch_address_fills_incremental.py 0x020ca66c30bec2c4fe3861a94e4d
 | [FILL_FIELDS.md](docs/FILL_FIELDS.md) | 字段详解（真实示例） |
 | [TIMEZONE_POLICY.md](docs/TIMEZONE_POLICY.md) | 时区策略（北京时间） |
 | [SCRIPTS.md](docs/SCRIPTS.md) | 脚本使用说明 |
+| [CRON_JOBS.md](docs/CRON_JOBS.md) | 定时任务配置（服务器部署）⭐ |
 
 ---
 
@@ -168,7 +169,8 @@ python scripts/fetch_address_fills_incremental.py 0x020ca66c30bec2c4fe3861a94e4d
 | **hl_address_list** | 地址列表 | ✅ 使用中 |
 | **hl_fills** | 交易历史（原始成交数据） | ✅ 使用中 |
 | **v_order_summary** | 订单汇总视图 | ✅ 使用中 |
-| hl_position_snapshots | 持仓快照 | 🚧 待开发 |
+| **hl_position_snapshots** | 持仓快照（账户级别） | ✅ 使用中 |
+| **hl_position_details** | 持仓明细（币种级别） | ✅ 使用中 |
 | hl_address_features | 地址特征 | 🚧 待开发 |
 | hl_fragile_scores | 脆弱地址评分 | 🚧 待开发 |
 | hl_fragile_pool | 脆弱地址池 | 🚧 待开发 |
@@ -276,6 +278,11 @@ pip install -r requirements.txt
 
 ## 📝 维护日志
 
+### 2026-04-08
+- ✅ 合并全量/增量脚本为统一版 `fetch_address_fills_incremental.py`
+- ✅ 新增批量模式：自动处理所有 active 地址（新地址全量，已有数据增量）
+- ✅ 删除旧版 `fetch_address_fills.py`
+
 ### 2026-04-07
 - ✅ 创建数据库表结构（11 张表）
 - ✅ 实现数据采集脚本（全量 + 增量）
@@ -298,4 +305,4 @@ MIT License
 
 ---
 
-**最后更新**: 2026-04-07
+**最后更新**: 2026-04-08

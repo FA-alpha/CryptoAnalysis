@@ -328,16 +328,247 @@ GROUP BY address;
 
 ---
 
+## 3. hl_position_snapshots
+
+### **表说明**
+存储用户的**账户级别持仓快照**（时间序列数据）。
+
+### **表结构**
+
+```sql
+CREATE TABLE hl_position_snapshots (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    address VARCHAR(66) NOT NULL COMMENT '钱包地址',
+    snapshot_time BIGINT NOT NULL COMMENT '快照时间戳(毫秒)',
+    account_value DECIMAL(20, 6) NOT NULL COMMENT '账户总价值',
+    total_margin_used DECIMAL(20, 6) NOT NULL COMMENT '已用保证金',
+    total_raw_usd DECIMAL(20, 6) COMMENT '钱包余额/USD净余额(可为负)',
+    total_ntl_pos DECIMAL(20, 6) COMMENT '总名义持仓价值',
+    withdrawable DECIMAL(20, 6) COMMENT '可提现金额',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入库时间（北京时间）',
+
+    UNIQUE KEY uk_address_time (address, snapshot_time),
+    INDEX idx_snapshot_time (snapshot_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='持仓快照(账户级别)';
+```
+
+### **字段说明**
+
+| 字段 | 类型 | 必需 | 说明 | API 来源 |
+|------|------|------|------|----------|
+| id | BIGINT | ✅ | 主键 | - |
+| address | VARCHAR(66) | ✅ | 钱包地址 | 请求参数 |
+| snapshot_time | BIGINT | ✅ | 快照时间戳（毫秒） | `time` |
+| account_value | DECIMAL(20,6) | ✅ | 账户总价值 | `marginSummary.accountValue` |
+| total_margin_used | DECIMAL(20,6) | ✅ | 已用保证金 | `marginSummary.totalMarginUsed` |
+| total_raw_usd | DECIMAL(20,6) | ❌ | 钱包余额 / USD 净余额（可能为负）⚠️ | `marginSummary.totalRawUsd` |
+| total_ntl_pos | DECIMAL(20,6) | ❌ | 总名义持仓价值 | `marginSummary.totalNtlPos` |
+| withdrawable | DECIMAL(20,6) | ❌ | 可提现金额 | `withdrawable` |
+| created_at | DATETIME | ✅ | 入库时间 | - |
+
+### **索引**
+
+| 索引名 | 字段 | 类型 | 用途 |
+|--------|------|------|------|
+| PRIMARY | id | 唯一 | 主键 |
+| uk_address_time | address, snapshot_time | **唯一** | **防止同一时刻重复** |
+| idx_snapshot_time | snapshot_time | 普通 | 按时间查询 |
+
+### **重要说明**
+
+#### **时间序列数据**
+- 每次采集插入**一条新快照**（不是覆盖）
+- 用于追踪账户价值变化、保证金使用率趋势
+- 唯一约束防止同一时刻重复采集
+
+#### **total_raw_usd 为负数的情况**
+
+**定义**：
+```
+total_raw_usd = 初始存入 + 所有已平仓盈亏 - 手续费 - 资金费 - 提现 + 追加存入
+```
+
+当 `total_raw_usd < 0` 时，表明账户的**历史累计亏损（含提现）超过初始本金**。
+
+**示例**：
+```sql
+account_value = 1,342,454.16 USDC       -- 当前账户总价值
+total_raw_usd = -18,153,503.34 USDC     -- 钱包余额（负数）
+total_ntl_pos = 19,495,957.50 USDC      -- 总名义持仓价值
+
+计算：
+account_value = total_raw_usd + unrealized_pnl
+1,342,454 ≈ -18,153,503 + 19,495,957 ✅
+```
+
+**这意味着**：
+- 用户历史累计亏损 1815 万 USDC
+- 但当前持仓未实现盈亏 +1949 万 USDC
+- 账户仍有净值 134 万 USDC
+- **高杠杆、高风险账户特征** 💀
+
+### **使用示例**
+
+```sql
+-- 查询某地址的最近 10 次快照
+SELECT * FROM hl_position_snapshots 
+WHERE address = '0x020ca66c30bec2c4fe3861a94e4db4a498a35872' 
+ORDER BY snapshot_time DESC 
+LIMIT 10;
+
+-- 查看账户价值变化趋势
+SELECT 
+    FROM_UNIXTIME(snapshot_time/1000) as time,
+    account_value,
+    total_margin_used,
+    ROUND(total_margin_used / account_value * 100, 2) as margin_ratio_pct
+FROM hl_position_snapshots 
+WHERE address = '0x...'
+ORDER BY snapshot_time ASC;
+
+-- 计算最大回撤
+SELECT 
+    MAX(account_value) as peak_value,
+    MIN(account_value) as trough_value,
+    ROUND((MAX(account_value) - MIN(account_value)) / MAX(account_value) * 100, 2) as max_drawdown_pct
+FROM hl_position_snapshots 
+WHERE address = '0x...';
+```
+
+---
+
+## 4. hl_position_details
+
+### **表说明**
+存储每个快照中的**持仓明细**（每个币种的持仓信息）。
+
+### **表结构**
+
+```sql
+CREATE TABLE hl_position_details (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    snapshot_id BIGINT NOT NULL COMMENT '关联 hl_position_snapshots.id',
+    coin VARCHAR(20) NOT NULL COMMENT '币种',
+    szi DECIMAL(20, 8) NOT NULL COMMENT '持仓数量(正=多,负=空)',
+    entry_px DECIMAL(20, 6) NOT NULL COMMENT '开仓均价',
+    position_value DECIMAL(20, 6) NOT NULL COMMENT '仓位价值',
+    unrealized_pnl DECIMAL(20, 6) DEFAULT 0 COMMENT '未实现盈亏',
+    return_on_equity DECIMAL(10, 6) DEFAULT 0 COMMENT 'ROE(回报率)',
+    liquidation_px DECIMAL(20, 6) COMMENT '清算价(null=无风险)',
+    margin_used DECIMAL(20, 6) COMMENT '占用保证金',
+    leverage_type VARCHAR(20) COMMENT '杠杆类型:cross/isolated',
+    leverage_value INT COMMENT '实际杠杆倍数',
+    max_leverage INT COMMENT '最大允许杠杆',
+    cum_funding_all_time DECIMAL(20, 6) COMMENT '历史累计资金费',
+    cum_funding_since_open DECIMAL(20, 6) COMMENT '开仓后累计资金费',
+
+    FOREIGN KEY (snapshot_id) REFERENCES hl_position_snapshots(id) ON DELETE CASCADE,
+    INDEX idx_snapshot_coin (snapshot_id, coin),
+    INDEX idx_coin (coin)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='持仓明细(每个快照的持仓列表)';
+```
+
+### **字段说明**
+
+| 字段 | 类型 | 必需 | 说明 | API 来源 |
+|------|------|------|------|----------|
+| id | BIGINT | ✅ | 主键 | - |
+| snapshot_id | BIGINT | ✅ | 关联快照ID | 外键 |
+| coin | VARCHAR(20) | ✅ | 币种 | `position.coin` |
+| szi | DECIMAL(20,8) | ✅ | 持仓数量（正=多，负=空） | `position.szi` |
+| entry_px | DECIMAL(20,6) | ✅ | 开仓均价 | `position.entryPx` |
+| position_value | DECIMAL(20,6) | ❌ | 仓位价值 | `position.positionValue` |
+| unrealized_pnl | DECIMAL(20,6) | ❌ | 未实现盈亏 | `position.unrealizedPnl` |
+| return_on_equity | DECIMAL(10,6) | ❌ | 回报率 (ROE) | `position.returnOnEquity` |
+| liquidation_px | DECIMAL(20,6) | ❌ | 清算价（null=无风险） | `position.liquidationPx` |
+| margin_used | DECIMAL(20,6) | ❌ | 占用保证金 | `position.marginUsed` |
+| leverage_type | VARCHAR(20) | ❌ | 杠杆类型 | `position.leverage.type` |
+| leverage_value | INT | ❌ | 实际杠杆倍数 | `position.leverage.value` |
+| max_leverage | INT | ❌ | 最大允许杠杆 | `position.maxLeverage` |
+| cum_funding_all_time | DECIMAL(20,6) | ❌ | 历史累计资金费 | `position.cumFunding.allTime` |
+| cum_funding_since_open | DECIMAL(20,6) | ❌ | 开仓后累计资金费 | `position.cumFunding.sinceOpen` |
+
+### **索引**
+
+| 索引名 | 字段 | 类型 | 用途 |
+|--------|------|------|------|
+| PRIMARY | id | 唯一 | 主键 |
+| FOREIGN KEY | snapshot_id | 外键 | 关联快照表 |
+| idx_snapshot_coin | snapshot_id, coin | 普通 | 按快照+币种查询 |
+| idx_coin | coin | 普通 | 按币种统计 |
+
+### **关联关系**
+
+```
+hl_position_snapshots (1) ←→ (N) hl_position_details
+一个快照包含多个持仓明细（N = 持仓币种数量）
+```
+
+### **使用示例**
+
+```sql
+-- 查看最新快照的所有持仓
+SELECT 
+    d.coin,
+    d.szi,
+    d.entry_px,
+    d.unrealized_pnl,
+    d.leverage_type,
+    d.leverage_value
+FROM hl_position_details d
+JOIN hl_position_snapshots s ON d.snapshot_id = s.id
+WHERE s.address = '0x020ca66c30bec2c4fe3861a94e4db4a498a35872'
+  AND s.snapshot_time = (
+      SELECT MAX(snapshot_time) 
+      FROM hl_position_snapshots 
+      WHERE address = '0x020ca66c30bec2c4fe3861a94e4db4a498a35872'
+  );
+
+-- 查看某币种的持仓历史
+SELECT 
+    FROM_UNIXTIME(s.snapshot_time/1000) as time,
+    d.szi,
+    d.unrealized_pnl,
+    d.leverage_value
+FROM hl_position_details d
+JOIN hl_position_snapshots s ON d.snapshot_id = s.id
+WHERE s.address = '0x...'
+  AND d.coin = 'ETH'
+ORDER BY s.snapshot_time ASC;
+
+-- 统计各币种的平均盈亏
+SELECT 
+    d.coin,
+    COUNT(DISTINCT s.id) as snapshot_count,
+    AVG(d.unrealized_pnl) as avg_pnl,
+    MIN(d.unrealized_pnl) as min_pnl,
+    MAX(d.unrealized_pnl) as max_pnl
+FROM hl_position_details d
+JOIN hl_position_snapshots s ON d.snapshot_id = s.id
+WHERE s.address = '0x...'
+GROUP BY d.coin;
+```
+
+---
+
 ## 🔄 数据流
 
 ```
 API 采集
-   ↓
-hl_fills（原始成交数据）
-   ↓
-v_order_summary（订单汇总视图）
-   ↓
-分析 & 统计
+   │
+   ├── userFills / userFillsByTime
+   │      ↓
+   │   hl_fills（原始成交数据）
+   │      ↓
+   │   v_order_summary（订单汇总视图）
+   │
+   └── clearinghouseState (user_state)
+          ↓
+       hl_position_snapshots（账户快照）
+          ↓
+       hl_position_details（持仓明细）
+          ↓
+       特征计算 & 分析
 ```
 
 ---

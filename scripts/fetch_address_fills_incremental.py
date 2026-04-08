@@ -1,45 +1,53 @@
 """
-增量获取地址交易历史 (fills)
-只获取上次更新后的新数据
+获取地址交易历史 (fills) - 统一版
+- 无历史数据：全量获取最近 2000 条（userFills）
+- 有历史数据：增量获取（userFillsByTime，从上次最新时间开始）
+- 支持单地址模式（传参）和批量模式（处理所有 active 地址）
+使用 aggregateByTime=True，UPSERT 保存（按 tid 去重）
 """
 import sys
 import os
+import time
+import httpx
+from decimal import Decimal
+from datetime import datetime
 from typing import List, Dict, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from hyperliquid.info import Info
 from utils.db_utils import get_connection
+
+# Hyperliquid API
+HYPERLIQUID_API_URL = "https://api.hyperliquid.xyz/info"
 
 
 def get_last_fill_time(address: str) -> Optional[int]:
     """
     获取数据库中该地址最新的 fill 时间戳
-    
+
     Returns:
         最新时间戳（毫秒），如果没有数据则返回 None
     """
     conn = get_connection()
     cursor = conn.cursor()
-    
+
     try:
         cursor.execute('''
-            SELECT MAX(time) FROM hl_fills 
+            SELECT MAX(time) FROM hl_fills
             WHERE address = %s
         ''', (address,))
-        
+
         result = cursor.fetchone()
         last_time = result[0] if result else None
-        
+
         if last_time:
-            from datetime import datetime
             dt = datetime.fromtimestamp(last_time / 1000)
             print(f"📅 数据库中最新记录时间: {dt.strftime('%Y-%m-%d %H:%M:%S')}")
         else:
-            print(f"📅 数据库中无该地址记录，将获取全部历史")
-        
+            print(f"📅 数据库中无该地址记录，将全量获取最近 2000 条")
+
         return last_time
-        
+
     finally:
         cursor.close()
         conn.close()
@@ -47,38 +55,59 @@ def get_last_fill_time(address: str) -> Optional[int]:
 
 def fetch_fills_incremental(address: str, start_time: Optional[int] = None) -> List[Dict]:
     """
-    增量获取 fills
-    
+    获取 fills（聚合模式）
+
     Args:
         address: 钱包地址
-        start_time: 起始时间戳（毫秒），None 则获取全部
+        start_time: 起始时间戳（毫秒）；None 则全量获取最近 2000 条
     """
-    print(f"\n📥 正在获取地址交易数据（增量模式）...")
+    print(f"\n📥 正在获取地址交易数据（aggregateByTime=True）...")
     print(f"   地址: {address}")
-    
+
     try:
-        info = Info(skip_ws=True)
-        
         if start_time:
-            # 从上次时间 +1ms 开始获取（避免重复）
-            fills = info.user_fills_by_time(address, start_time=start_time + 1)
-            print(f"   起始时间: {start_time + 1} (上次时间 +1ms)")
+            # 增量模式：从上次最新时间开始获取
+            # 不加 1ms，因为聚合后同一时间的数据可能有更新
+            print(f"   模式: 增量（起始时间: {datetime.fromtimestamp(start_time/1000).strftime('%Y-%m-%d %H:%M:%S')}）")
+            resp = httpx.post(
+                HYPERLIQUID_API_URL,
+                json={
+                    'type': 'userFillsByTime',
+                    'user': address,
+                    'startTime': start_time,
+                    'aggregateByTime': True
+                },
+                headers={'Content-Type': 'application/json'},
+                timeout=30.0
+            )
         else:
-            # 获取全部历史
-            fills = info.user_fills(address)
-            print(f"   模式: 全量获取")
-        
+            # 全量模式：获取最近 2000 条
+            print(f"   模式: 全量获取（最近 2000 条）")
+            resp = httpx.post(
+                HYPERLIQUID_API_URL,
+                json={
+                    'type': 'userFills',
+                    'user': address,
+                    'aggregateByTime': True
+                },
+                headers={'Content-Type': 'application/json'},
+                timeout=30.0
+            )
+
+        resp.raise_for_status()
+        fills = resp.json()
+
         print(f"✅ 成功获取 {len(fills)} 条 fills")
-        
+
         if fills:
-            print(f"\n=== 新数据示例（前3条）===")
+            fills.sort(key=lambda x: x.get('time', 0))
+            print(f"\n=== 新数据示例（前 3 条）===")
             for i, fill in enumerate(fills[:3], 1):
-                from datetime import datetime
                 dt = datetime.fromtimestamp(fill.get('time', 0) / 1000)
                 print(f"[{i}] {dt.strftime('%Y-%m-%d %H:%M:%S')} | {fill.get('coin')} | {fill.get('dir')} | 数量:{fill.get('sz')} | PnL:{fill.get('closedPnl', 0)}")
-        
+
         return fills
-        
+
     except Exception as e:
         print(f"❌ 获取失败: {e}")
         import traceback
@@ -86,97 +115,108 @@ def fetch_fills_incremental(address: str, start_time: Optional[int] = None) -> L
         return []
 
 
-def save_fills_batch(address: str, fills: List[Dict]) -> int:
-    """批量保存 fills（使用 INSERT IGNORE 跳过重复）"""
+def upsert_fills_batch(address: str, fills: List[Dict]) -> Dict[str, int]:
+    """
+    批量保存 fills（UPSERT 模式）
+    - 新记录：直接插入
+    - 已存在记录（按 tid 判断）：更新字段（聚合后 sz/fee/closedPnl 等可能变化）
+
+    Returns:
+        {'inserted': int, 'updated': int}
+    """
     if not fills:
         print("\n⚠️ 没有新数据需要保存")
-        return 0
-    
-    print(f"\n💾 正在批量保存到数据库...")
+        return {'inserted': 0, 'updated': 0}
+
+    print(f"\n💾 正在批量保存到数据库（UPSERT 模式）...")
     print(f"   总数: {len(fills)} 条")
-    
+
     conn = get_connection()
     cursor = conn.cursor()
-    
+
     try:
         values = []
         for fill in fills:
+            hash_val = fill.get('hash')
+            if hash_val == '0x0000000000000000000000000000000000000000000000000000000000000000':
+                hash_val = None
+
             values.append((
                 address,
                 fill.get('coin', ''),
-                fill.get('sz', 0),
-                fill.get('px', 0),
+                Decimal(str(fill.get('sz', 0))),
+                Decimal(str(fill.get('px', 0))),
                 fill.get('dir', ''),
-                fill.get('closedPnl', 0),
-                fill.get('fee', 0),
+                Decimal(str(fill.get('closedPnl', 0))),
+                Decimal(str(fill.get('fee', 0))),
                 fill.get('feeToken', 'USDC'),
                 fill.get('time', 0),
-                fill.get('hash', ''),
-                fill.get('tid', 0),
-                fill.get('oid', 0),
+                hash_val,
+                fill.get('tid'),
+                fill.get('oid'),
                 fill.get('twapId'),
                 fill.get('side', ''),
-                fill.get('startPosition', 0),
-                fill.get('crossed', True)
+                Decimal(str(fill.get('startPosition', 0))),
+                fill.get('crossed', True),
             ))
-        
+
         sql = '''
-            INSERT IGNORE INTO hl_fills 
+            INSERT INTO hl_fills
             (address, coin, sz, px, dir, closed_pnl, fee, fee_token, time, hash, tid, oid, twap_id, side, start_position, crossed)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                sz = VALUES(sz),
+                px = VALUES(px),
+                closed_pnl = VALUES(closed_pnl),
+                fee = VALUES(fee),
+                hash = VALUES(hash),
+                start_position = VALUES(start_position),
+                crossed = VALUES(crossed)
         '''
-        
-        # 分批插入（每批 500 条）
+
         batch_size = 500
-        total_inserted = 0
-        
+        total_affected = 0
+
         for i in range(0, len(values), batch_size):
             batch = values[i:i+batch_size]
             cursor.executemany(sql, batch)
             conn.commit()
-            total_inserted += cursor.rowcount
-            print(f"   进度: {min(i+batch_size, len(values))}/{len(values)} ({total_inserted} 条新增)")
-        
-        print(f"\n✅ 保存完成!")
-        print(f"   ✓ 新增: {total_inserted} 条")
-        print(f"   - 重复跳过: {len(fills) - total_inserted} 条")
-        
-        return total_inserted
-        
+            total_affected += cursor.rowcount
+            print(f"   进度: {min(i+batch_size, len(values))}/{len(values)}")
+
+        print(f"\n✅ 保存完成! 总影响行数: {total_affected}（1=新插入, 2=更新）")
+        return {'inserted': total_affected, 'updated': 0}
+
     except Exception as e:
         conn.rollback()
         print(f"❌ 保存失败: {e}")
         import traceback
         traceback.print_exc()
-        return 0
-        
+        return {'inserted': 0, 'updated': 0}
+
     finally:
         cursor.close()
         conn.close()
 
 
-def update_address_last_updated(address: str):
-    """更新地址的最后更新时间"""
+def update_address_last_updated(address: str) -> None:
+    """更新地址的最后更新时间（北京时间）"""
     conn = get_connection()
     cursor = conn.cursor()
-    
+
     try:
         cursor.execute('''
-            UPDATE hl_address_list 
-            SET last_updated_at = NOW() 
+            UPDATE hl_address_list
+            SET last_updated_at = NOW()
             WHERE address = %s
         ''', (address,))
         conn.commit()
-        
-        # 获取更新后的时间
-        cursor.execute('''
-            SELECT last_updated_at FROM hl_address_list 
-            WHERE address = %s
-        ''', (address,))
+
+        cursor.execute('SELECT last_updated_at FROM hl_address_list WHERE address = %s', (address,))
         result = cursor.fetchone()
         if result:
             print(f"✅ 已更新地址最后更新时间: {result[0]}")
-            
+
     except Exception as e:
         print(f"⚠️ 更新地址时间失败: {e}")
     finally:
@@ -184,37 +224,127 @@ def update_address_last_updated(address: str):
         conn.close()
 
 
-def main():
-    """主函数"""
+def get_all_active_addresses() -> List[str]:
+    """
+    从 hl_address_list 获取所有 active 状态的地址
+
+    Returns:
+        地址列表
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute('''
+            SELECT address FROM hl_address_list
+            WHERE status = 'active'
+            ORDER BY address
+        ''')
+        rows = cursor.fetchall()
+        addresses = [row[0] for row in rows]
+        print(f"📋 共找到 {len(addresses)} 个活跃地址")
+        return addresses
+
+    except Exception as e:
+        print(f"❌ 获取地址列表失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def process_single_address(address: str) -> bool:
+    """
+    处理单个地址：自动判断全量 or 增量
+
+    Args:
+        address: 钱包地址
+
+    Returns:
+        是否处理成功
+    """
+    try:
+        last_time = get_last_fill_time(address)
+        fills = fetch_fills_incremental(address, start_time=last_time)
+
+        if not fills:
+            print("✅ 无新数据，跳过")
+            return True
+
+        result = upsert_fills_batch(address, fills)
+
+        if result['inserted'] > 0:
+            update_address_last_updated(address)
+
+        return True
+
+    except Exception as e:
+        print(f"❌ 处理失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def process_all_addresses(delay_seconds: float = 1.0) -> None:
+    """
+    批量处理所有 active 地址：
+    - 无历史数据 → 全量获取最近 2000 条
+    - 有历史数据 → 增量获取
+
+    Args:
+        delay_seconds: 地址之间的请求间隔（秒），避免 API 限流
+    """
+    addresses = get_all_active_addresses()
+
+    if not addresses:
+        print("⚠️ 未找到任何活跃地址")
+        return
+
+    total = len(addresses)
+    success_count = 0
+    failed_count = 0
+
+    for idx, address in enumerate(addresses, 1):
+        print(f"\n{'='*70}")
+        print(f"[{idx}/{total}] 处理地址: {address}")
+        print('='*70)
+
+        ok = process_single_address(address)
+        if ok:
+            success_count += 1
+        else:
+            failed_count += 1
+
+        if idx < total:
+            time.sleep(delay_seconds)
+
+    print(f"\n{'='*70}")
+    print(f"🎯 批量处理完成: 成功 {success_count} / 失败 {failed_count} / 总计 {total}")
+    print('='*70)
+
+
+def main() -> None:
+    """
+    主函数
+
+    用法：
+        python fetch_address_fills_incremental.py              # 批量处理所有 active 地址
+        python fetch_address_fills_incremental.py <address>   # 处理单个地址
+    """
     if len(sys.argv) > 1:
         address = sys.argv[1]
+        print("=" * 70)
+        print("Hyperliquid 地址交易数据获取（单地址模式）")
+        print("=" * 70)
+        process_single_address(address)
     else:
-        address = '0x020ca66c30bec2c4fe3861a94e4db4a498a35872'
-    
-    print("=" * 70)
-    print("Hyperliquid 地址交易数据获取（增量更新模式）")
-    print("=" * 70)
-    
-    # 1. 获取数据库中最新的 fill 时间
-    last_time = get_last_fill_time(address)
-    
-    # 2. 增量获取 fills
-    fills = fetch_fills_incremental(address, start_time=last_time)
-    
-    if not fills:
-        print("\n✅ 没有新数据")
-        return
-    
-    # 3. 批量保存到数据库
-    inserted = save_fills_batch(address, fills)
-    
-    # 4. 更新地址最后更新时间
-    if inserted > 0:
-        update_address_last_updated(address)
-    
-    print("\n" + "=" * 70)
-    print(f"✅ 完成! 成功保存 {inserted} 条新数据")
-    print("=" * 70)
+        print("=" * 70)
+        print("Hyperliquid 地址交易数据获取（批量模式）")
+        print("=" * 70)
+        process_all_addresses(delay_seconds=1.0)
 
 
 if __name__ == '__main__':

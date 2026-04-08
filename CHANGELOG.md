@@ -5,8 +5,9 @@
 ### 新增功能
 - ✅ 数据库设计与建表（11 张表 + 1 个视图）
 - ✅ Hyperliquid API 数据采集脚本
-  - `fetch_address_fills.py` - 全量获取
-  - `fetch_address_fills_incremental.py` - 增量更新
+  - `fetch_address_fills.py` - 全量获取交易历史
+  - `fetch_address_fills_incremental.py` - 增量更新交易历史
+  - `fetch_all_position_snapshots.py` - 批量获取持仓快照 ⭐
 - ✅ 数据库工具类（自动设置时区为北京时间）
 - ✅ 完整的项目文档
   - `DATABASE.md` - 数据库设计
@@ -14,6 +15,7 @@
   - `FILL_FIELDS.md` - 字段详解
   - `TIMEZONE_POLICY.md` - 时区策略
   - `SCRIPTS.md` - 脚本使用说明
+  - `CRON_JOBS.md` - 定时任务配置（服务器部署）⭐
   - `README.md` - 项目主文档
 
 ### 数据库变更
@@ -37,6 +39,20 @@
 - 一个订单（hash/oid）可能被拆成多笔成交（tid）
 - 使用 hash 作为唯一键会丢失数据
 - tid 是每笔成交的唯一标识
+
+#### hl_position_snapshots 表
+**新增字段**：
+- `total_raw_usd` DECIMAL(20,6) - 钱包余额/USD净余额（可为负）
+- `total_ntl_pos` DECIMAL(20,6) - 总名义持仓价值
+- `withdrawable` DECIMAL(20,6) - 可提现金额
+
+**索引变更**：
+- ✅ 新增 `UNIQUE KEY uk_address_time (address, snapshot_time)` ⭐
+
+#### hl_position_details 表
+**新增字段**：
+- `cum_funding_all_time` DECIMAL(20,6) - 历史累计资金费
+- `cum_funding_since_open` DECIMAL(20,6) - 开仓后累计资金费
 
 #### v_order_summary 视图
 **新增视图**：订单级别的成交汇总
