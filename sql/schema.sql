@@ -68,6 +68,10 @@ CREATE TABLE IF NOT EXISTS hl_position_snapshots (
     total_raw_usd DECIMAL(20, 6) COMMENT '钱包余额/USD净余额(可为负)',
     total_ntl_pos DECIMAL(20, 6) COMMENT '总名义持仓价值',
     withdrawable DECIMAL(20, 6) COMMENT '可提现金额',
+    pnl_day DECIMAL(20, 6) NULL COMMENT '当日盈亏 (USDC)',
+    pnl_week DECIMAL(20, 6) NULL COMMENT '本周盈亏 (USDC)',
+    pnl_month DECIMAL(20, 6) NULL COMMENT '本月盈亏 (USDC)',
+    pnl_all_time DECIMAL(20, 6) NULL COMMENT '历史总盈亏 (USDC)',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入库时间（北京时间）',
 
     UNIQUE KEY uk_address_time (address, snapshot_time),

@@ -10,8 +10,11 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import httpx
 from hyperliquid.info import Info
 from utils.db_utils import get_connection
+
+HYPERLIQUID_API_URL = "https://api.hyperliquid.xyz/info"
 
 
 def get_active_addresses() -> List[tuple]:
@@ -43,10 +46,10 @@ def get_active_addresses() -> List[tuple]:
 def fetch_clearinghouse_state(address: str) -> Optional[Dict]:
     """
     获取地址的持仓状态
-    
+
     Args:
         address: 钱包地址
-        
+
     Returns:
         持仓状态数据，失败返回 None
     """
@@ -54,37 +57,90 @@ def fetch_clearinghouse_state(address: str) -> Optional[Dict]:
         info = Info(skip_ws=True)
         state = info.user_state(address)
         return state
-        
+
     except Exception as e:
         print(f"   ❌ 获取失败: {e}")
         return None
 
 
-def save_snapshot(address: str, state: Dict) -> bool:
+def fetch_portfolio_pnl(address: str) -> Dict[str, Optional[float]]:
+    """
+    从 portfolio 接口获取各时间维度的最新 PnL
+
+    Args:
+        address: 钱包地址
+
+    Returns:
+        {'pnl_day': float, 'pnl_week': float, 'pnl_month': float, 'pnl_all_time': float}
+        获取失败时对应值为 None
+    """
+    result: Dict[str, Optional[float]] = {
+        'pnl_day': None,
+        'pnl_week': None,
+        'pnl_month': None,
+        'pnl_all_time': None,
+    }
+
+    period_map = {
+        'perpDay': 'pnl_day',
+        'perpWeek': 'pnl_week',
+        'perpMonth': 'pnl_month',
+        'perpAllTime': 'pnl_all_time',
+    }
+
+    try:
+        resp = httpx.post(
+            HYPERLIQUID_API_URL,
+            json={'type': 'portfolio', 'user': address},
+            headers={'Content-Type': 'application/json'},
+            timeout=30.0
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        for item in data:
+            period = item[0]
+            if period not in period_map:
+                continue
+            pnl_history = item[1].get('pnlHistory', [])
+            if pnl_history:
+                # 取最后一条（最新值）
+                latest_pnl = float(pnl_history[-1][1])
+                result[period_map[period]] = latest_pnl
+
+    except Exception as e:
+        print(f"   ⚠️ 获取 portfolio PnL 失败: {e}")
+
+    return result
+
+
+def save_snapshot(address: str, state: Dict, pnl: Dict) -> bool:
     """
     保存持仓快照到数据库
-    
+
     Args:
         address: 钱包地址
         state: clearinghouseState 数据
-        
+        pnl: portfolio PnL 数据 {'pnl_day', 'pnl_week', 'pnl_month', 'pnl_all_time'}
+
     Returns:
         是否保存成功
     """
     conn = get_connection()
     cursor = conn.cursor()
-    
+
     try:
         # 提取账户汇总数据
         margin = state.get('marginSummary', {})
         snapshot_time = state.get('time')
-        
-        # 插入账户快照
+
+        # 插入账户快照（含 PnL）
         cursor.execute('''
-            INSERT IGNORE INTO hl_position_snapshots 
-            (address, snapshot_time, account_value, total_margin_used, 
-             total_raw_usd, total_ntl_pos, withdrawable)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT IGNORE INTO hl_position_snapshots
+            (address, snapshot_time, account_value, total_margin_used,
+             total_raw_usd, total_ntl_pos, withdrawable,
+             pnl_day, pnl_week, pnl_month, pnl_all_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ''', (
             address,
             snapshot_time,
@@ -92,7 +148,11 @@ def save_snapshot(address: str, state: Dict) -> bool:
             Decimal(str(margin.get('totalMarginUsed', 0))),
             Decimal(str(margin.get('totalRawUsd', 0))),
             Decimal(str(margin.get('totalNtlPos', 0))),
-            Decimal(str(state.get('withdrawable', 0)))
+            Decimal(str(state.get('withdrawable', 0))),
+            Decimal(str(pnl['pnl_day'])) if pnl['pnl_day'] is not None else None,
+            Decimal(str(pnl['pnl_week'])) if pnl['pnl_week'] is not None else None,
+            Decimal(str(pnl['pnl_month'])) if pnl['pnl_month'] is not None else None,
+            Decimal(str(pnl['pnl_all_time'])) if pnl['pnl_all_time'] is not None else None,
         ))
         
         # 获取 snapshot_id
@@ -192,12 +252,16 @@ def main():
         margin = state.get('marginSummary', {})
         account_value = margin.get('accountValue', 0)
         positions = state.get('assetPositions', [])
-        
+
         print(f"   💰 账户价值: {account_value} USDC")
         print(f"   📊 持仓数量: {len(positions)} 个")
-        
+
+        # 获取 PnL
+        pnl = fetch_portfolio_pnl(address)
+        print(f"   📈 今日/周/月/历史 PnL: {pnl['pnl_day']} / {pnl['pnl_week']} / {pnl['pnl_month']} / {pnl['pnl_all_time']}")
+
         # 保存到数据库
-        if save_snapshot(address, state):
+        if save_snapshot(address, state, pnl):
             print(f"   ✅ 保存成功")
             success_count += 1
         else:
