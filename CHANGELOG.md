@@ -74,12 +74,75 @@
 
 ---
 
+## [0.2.0] - 2026-04-08
+
+### 新增功能
+- ✅ 持仓快照模块完成（hl_position_snapshots + hl_position_details）
+  - `fetch_all_position_snapshots.py` 批量获取所有 active 地址持仓
+  - 同时拉取各时间维度 PnL（今日/周/月/历史）
+  - snapshot_date 自动归档逻辑（00:xx 执行时归为前一天）
+  - Upsert 逻辑（同日重复执行时更新快照 + 重建持仓明细）
+- ✅ fills 采集脚本统一（fetch_address_fills_incremental.py）
+  - 合并原全量/增量两个脚本为一个统一版本
+  - 自动判断：无历史数据 → userFills 全量 2000 条；有历史数据 → userFillsByTime 增量
+  - 启用 aggregateByTime=True（合并同一订单的部分成交）
+  - 改用 UPSERT（ON DUPLICATE KEY UPDATE）替代 INSERT IGNORE
+- ✅ 脆弱地址评分模型（calculate_fragile_scores.py）
+  - 总分 100 分：风险行为(35) + 亏损特征(40) + 行为模式(25)
+  - 地址分级：L1≥75 / L2≥60 / L3≥40 / L4<40
+- ✅ 特征计算引擎（calculate_address_features.py）
+  - 胜率、杠杆、持仓时间、保证金使用率等特征计算
+- ✅ 服务器部署完成（AWS EC2）
+  - 项目路径：/home/ubuntu/CryptoAnalysis
+  - 配置 crontab 定时任务（北京时间）
+
+### 定时任务（服务器已配置）
+| 时间（北京时间） | 任务 |
+|----------------|------|
+| 00:00 | fills 增量更新 |
+| 00:03 | 持仓快照（snapshot_date 归前一天） |
+| 00:10 | 特征计算 |
+| 00:20 | 评分计算 |
+
+### 实测评分结果
+| 地址 | 分数 | 等级 |
+|------|------|------|
+| 爆仓达人3（0xf7d4） | 73 | L2 |
+| 爆仓达人1（0x697e） | 63 | L2 |
+| 爆仓达人2（0xdeea） | 47 | L3 |
+| 麻吉大哥（0x020c） | 40 | L3 |
+
+### 数据库变更
+
+#### hl_position_snapshots 表
+**新增字段**：
+- `pnl_day` DECIMAL(20,6) - 今日 PnL
+- `pnl_week` DECIMAL(20,6) - 本周 PnL
+- `pnl_month` DECIMAL(20,6) - 本月 PnL
+- `pnl_all_time` DECIMAL(20,6) - 历史总 PnL
+- `snapshot_date` DATE - 归档日期（用于按天去重）
+
+### 技术改进
+- ✅ aggregateByTime=True 全面启用（减少噪音，适合脆弱地址分析）
+- ✅ hash 全零时存储为 NULL（0x000...000 → NULL）
+- ✅ 数据插入前按 time 字段升序排序
+
+### 维护记录
+
+#### 2026-04-08
+- 完成持仓快照模块（hl_position_snapshots + hl_position_details）
+- 统一 fills 采集脚本（删除旧版 fetch_address_fills.py）
+- 完成特征计算 + 评分模型，实测 4 个地址
+- 部署到 AWS EC2 服务器，配置 crontab 定时任务
+
+---
+
 ## 下一步计划
 
 ### Phase 2: 特征与评分
-- [ ] 特征计算引擎（胜率、杠杆、持仓时间等）
-- [ ] 脆弱地址评分模型
-- [ ] 地址分级（L1/L2/L3/L4）
+- [x] 特征计算引擎（胜率、杠杆、持仓时间等）
+- [x] 脆弱地址评分模型
+- [x] 地址分级（L1/L2/L3/L4）
 - [ ] 动态池子管理
 
 ### Phase 3: 回测与验证

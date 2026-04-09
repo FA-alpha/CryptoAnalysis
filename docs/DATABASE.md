@@ -13,583 +13,764 @@
 
 | 表名 | 说明 | 状态 |
 |------|------|------|
-| [hl_address_list](#1-hl_address_list) | 地址列表 | ✅ 使用中 |
-| [hl_fills](#2-hl_fills) | 交易历史（原始成交数据） | ✅ 使用中 |
-| [hl_position_snapshots](#3-hl_position_snapshots) | 持仓快照（汇总） | 🚧 待开发 |
-| [hl_position_details](#4-hl_position_details) | 持仓明细 | 🚧 待开发 |
-| [hl_address_features](#5-hl_address_features) | 地址特征（计算结果） | 🚧 待开发 |
-| [hl_fragile_scores](#6-hl_fragile_scores) | 脆弱地址评分 | 🚧 待开发 |
-| [hl_fragile_pool](#7-hl_fragile_pool) | 脆弱地址池（实时监控） | 🚧 待开发 |
-| [hl_reverse_signals](#8-hl_reverse_signals) | 反向跟单信号 | 🚧 待开发 |
-| [hl_follow_trades](#9-hl_follow_trades) | 跟单交易记录 | 🚧 待开发 |
-| [hl_monitor_logs](#10-hl_monitor_logs) | 实时监控日志 | 🚧 待开发 |
-| [hl_backtest_results](#11-hl_backtest_results) | 回测结果 | 🚧 待开发 |
-
----
+| [hl_address_features](#hl-address-features) | 地址特征（计算结果） | ✅ 使用中 |
+| [hl_address_list](#hl-address-list) | 地址列表 | ✅ 使用中 |
+| [hl_backtest_results](#hl-backtest-results) | 回测结果 | ✅ 使用中 |
+| [hl_fills](#hl-fills) | 交易历史（原始成交数据） | ✅ 使用中 |
+| [hl_follow_trades](#hl-follow-trades) | 跟单交易记录 | ✅ 使用中 |
+| [hl_fragile_pool](#hl-fragile-pool) | 脆弱地址池（实时监控） | ✅ 使用中 |
+| [hl_fragile_scores](#hl-fragile-scores) | 脆弱地址评分 | ✅ 使用中 |
+| [hl_monitor_logs](#hl-monitor-logs) | 实时监控日志 | ✅ 使用中 |
+| [hl_position_details](#hl-position-details) | 持仓明细 | ✅ 使用中 |
+| [hl_position_snapshots](#hl-position-snapshots) | 持仓快照（汇总） | ✅ 使用中 |
+| [hl_reverse_signals](#hl-reverse-signals) | 反向跟单信号 | ✅ 使用中 |
 
 ## 📑 视图清单
 
 | 视图名称 | 说明 | 状态 |
 |----------|------|------|
-| [v_order_summary](#v_order_summary-订单汇总视图) | 订单级别的成交汇总 | ✅ 使用中 |
+| [v_order_summary](#v_order_summary) | - | ✅ 使用中 |
 
 ---
 
-## 1. hl_address_list
+## 1. hl_address_features
 
 ### **表说明**
-存储需要监控的地址列表。
+地址特征（计算结果）
 
 ### **表结构**
 
 ```sql
-CREATE TABLE hl_address_list (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    address VARCHAR(66) NOT NULL UNIQUE COMMENT '钱包地址',
-    label VARCHAR(100) COMMENT '地址标签/别名',
-    source VARCHAR(50) DEFAULT 'manual' COMMENT '来源:hyperbot/manual',
-    first_seen_at DATETIME NOT NULL COMMENT '首次发现时间',
-    last_updated_at DATETIME NOT NULL COMMENT '最后更新时间',
-    status ENUM('active', 'inactive', 'excluded') DEFAULT 'active' COMMENT '状态',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    INDEX idx_status (status),
-    INDEX idx_last_updated (last_updated_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='地址列表';
+CREATE TABLE `hl_address_features` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `address` varchar(66) NOT NULL COMMENT '钱包地址',
+  `calculated_at` datetime NOT NULL COMMENT '计算时间',
+  `data_period_start` bigint DEFAULT NULL COMMENT '数据起始时间戳(ms)',
+  `data_period_end` bigint DEFAULT NULL COMMENT '数据结束时间戳(ms)',
+  `total_trades` int NOT NULL DEFAULT '0' COMMENT '总交易次数',
+  `win_rate` decimal(5,2) DEFAULT NULL COMMENT '胜率(%)',
+  `avg_win_pnl` decimal(20,6) DEFAULT NULL COMMENT '平均盈利',
+  `avg_loss_pnl` decimal(20,6) DEFAULT NULL COMMENT '平均亏损',
+  `profit_loss_ratio` decimal(10,2) DEFAULT NULL COMMENT '盈亏比',
+  `total_realized_pnl` decimal(20,6) DEFAULT NULL COMMENT '总已实现盈亏',
+  `total_fee` decimal(20,6) DEFAULT NULL COMMENT '总手续费',
+  `avg_leverage` decimal(10,2) DEFAULT NULL COMMENT '平均实际杠杆',
+  `max_leverage` decimal(10,2) DEFAULT NULL COMMENT '最大实际杠杆',
+  `avg_margin_utilization` decimal(5,2) DEFAULT NULL COMMENT '平均保证金使用率(%)',
+  `max_margin_utilization` decimal(5,2) DEFAULT NULL COMMENT '最大保证金使用率(%)',
+  `coin_concentration` decimal(5,2) DEFAULT NULL COMMENT '单币种集中度(%)',
+  `liquidation_count` int DEFAULT '0' COMMENT '清算次数',
+  `max_drawdown` decimal(5,2) DEFAULT NULL COMMENT '最大回撤(%)',
+  `loss_add_ratio` decimal(5,2) DEFAULT NULL COMMENT '浮亏加仓率(%)',
+  `hold_loss_ratio` decimal(10,2) DEFAULT NULL COMMENT '死扛指数(亏损持仓时间/盈利持仓时间)',
+  `chase_ratio` decimal(5,2) DEFAULT NULL COMMENT '追涨杀跌率(%)',
+  `total_loss_holding_seconds` bigint DEFAULT NULL COMMENT '亏损持仓总时长(秒)',
+  `total_profit_holding_seconds` bigint DEFAULT NULL COMMENT '盈利持仓总时长(秒)',
+  `avg_loss_holding_seconds` decimal(20,2) DEFAULT NULL COMMENT '平均亏损持仓时长(秒)',
+  `avg_profit_holding_seconds` decimal(20,2) DEFAULT NULL COMMENT '平均盈利持仓时长(秒)',
+  `active_days` int DEFAULT NULL COMMENT '活跃天数',
+  `avg_trades_per_day` decimal(10,2) DEFAULT NULL COMMENT '日均交易次数',
+  `last_trade_time` bigint DEFAULT NULL COMMENT '最后一笔交易时间戳(ms)',
+  PRIMARY KEY (`id`),
+  KEY `idx_address_time` (`address`,`calculated_at` DESC),
+  KEY `idx_calculated_at` (`calculated_at`)
+) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='地址特征(计算结果)';
 ```
 
 ### **字段说明**
 
-| 字段 | 类型 | 必需 | 说明 | 示例 |
-|------|------|------|------|------|
-| id | BIGINT | ✅ | 主键 | 1 |
-| address | VARCHAR(66) | ✅ | 钱包地址（唯一） | `0x020ca66c...` |
-| label | VARCHAR(100) | ❌ | 地址标签 | `麻吉大哥` |
-| source | VARCHAR(50) | ❌ | 来源 | `manual`, `hyperbot` |
-| first_seen_at | DATETIME | ✅ | 首次发现时间 | `2026-04-07 13:59:38` |
-| last_updated_at | DATETIME | ✅ | 最后更新时间 | `2026-04-07 15:03:38` |
-| status | ENUM | ❌ | 状态 | `active`, `inactive`, `excluded` |
-| created_at | DATETIME | ✅ | 创建时间 | `2026-04-07 13:59:38` |
-
-### **索引**
-
-| 索引名 | 字段 | 类型 | 用途 |
-|--------|------|------|------|
-| PRIMARY | id | 唯一 | 主键 |
-| UNIQUE | address | 唯一 | 防重复 |
-| idx_status | status | 普通 | 状态筛选 |
-| idx_last_updated | last_updated_at | 普通 | 按更新时间排序 |
-
-### **使用示例**
-
-```sql
--- 插入新地址
-INSERT INTO hl_address_list 
-(address, label, source, first_seen_at, last_updated_at, status)
-VALUES 
-('0x020ca66c30bec2c4fe3861a94e4db4a498a35872', '麻吉大哥', 'manual', NOW(), NOW(), 'active');
-
--- 查询活跃地址
-SELECT * FROM hl_address_list WHERE status = 'active';
-
--- 更新最后更新时间
-UPDATE hl_address_list SET last_updated_at = NOW() WHERE address = '0x...';
-```
-
----
-
-## 2. hl_fills
-
-### **表说明**
-存储用户的**每笔成交记录**（最细粒度的原始数据）。
-
-### **表结构**
-
-```sql
-CREATE TABLE hl_fills (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    address VARCHAR(66) NOT NULL COMMENT '钱包地址',
-    coin VARCHAR(20) NOT NULL COMMENT '币种',
-    sz DECIMAL(20,8) NOT NULL COMMENT '成交数量',
-    px DECIMAL(20,6) NOT NULL COMMENT '成交价格',
-    dir VARCHAR(20) NOT NULL COMMENT '方向',
-    closed_pnl DECIMAL(20,6) DEFAULT 0 COMMENT '已实现盈亏',
-    fee DECIMAL(20,6) DEFAULT 0 COMMENT '手续费',
-    fee_token VARCHAR(10) DEFAULT 'USDC' COMMENT '手续费币种',
-    time BIGINT NOT NULL COMMENT '成交时间戳(毫秒)',
-    hash VARCHAR(100) NOT NULL COMMENT '订单哈希',
-    tid BIGINT NOT NULL COMMENT '成交ID（唯一标识）',
-    oid BIGINT NOT NULL COMMENT '订单ID',
-    twap_id VARCHAR(100) COMMENT 'TWAP订单ID',
-    side VARCHAR(5) COMMENT '主动方向:A/B',
-    start_position DECIMAL(20,8) COMMENT '成交前持仓',
-    crossed BOOLEAN DEFAULT TRUE COMMENT '是否全仓模式',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入库时间',
-
-    UNIQUE KEY uk_tid (tid),
-    INDEX idx_address_time (address, time DESC),
-    INDEX idx_hash (hash),
-    INDEX idx_oid (oid),
-    INDEX idx_coin (coin),
-    INDEX idx_dir (dir),
-    INDEX idx_time (time)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='交易历史(原始成交数据)';
-```
-
-### **字段说明**
-
-| 字段 | 类型 | 必需 | 说明 | 示例 |
-|------|------|------|------|------|
-| **tid** | BIGINT | ✅ | **成交ID（唯一键）** | `449746928007068` |
-| oid | BIGINT | ✅ | 订单ID（同一订单共享） | `372793001458` |
-| hash | VARCHAR(100) | ✅ | 订单哈希（同一订单共享） | `0xc6e3ad...` |
-| address | VARCHAR(66) | ✅ | 钱包地址 | `0x020ca66c...` |
-| coin | VARCHAR(20) | ✅ | 币种 | `ETH`, `BTC`, `SOL` |
-| sz | DECIMAL(20,8) | ✅ | 成交数量 | `12.755` |
-| px | DECIMAL(20,6) | ✅ | 成交价格 | `2096.8` |
-| dir | VARCHAR(20) | ✅ | 方向 | `Open Long`, `Close Long`, `Open Short`, `Close Short`, `Liquidation` |
-| closed_pnl | DECIMAL(20,6) | ❌ | 已实现盈亏（平仓时才有值） | `22.147968` |
-| fee | DECIMAL(20,6) | ❌ | 手续费 | `8.023405` |
-| fee_token | VARCHAR(10) | ❌ | 手续费币种 | `USDC` |
-| time | BIGINT | ✅ | 时间戳（毫秒） | `1775543005352` |
-| side | VARCHAR(5) | ❌ | 主动方向 | `B`（买入主动），`A`（卖出主动） |
-| start_position | DECIMAL(20,8) | ❌ | 成交前持仓 | `9512.245` |
-| crossed | BOOLEAN | ❌ | 是否全仓 | `true`（全仓），`false`（逐仓） |
-| twap_id | VARCHAR(100) | ❌ | TWAP订单ID | `null` |
-| created_at | DATETIME | ✅ | 入库时间（北京时间） | `2026-04-07 15:03:38` |
-
-### **索引**
-
-| 索引名 | 字段 | 类型 | 用途 |
-|--------|------|------|------|
-| uk_tid | tid | **唯一** | **防重复（主要去重键）** |
-| idx_address_time | address, time | 普通 | 按地址和时间查询 |
-| idx_hash | hash | 普通 | 查询同一订单的多笔成交 |
-| idx_oid | oid | 普通 | 按订单ID查询 |
-| idx_coin | coin | 普通 | 按币种统计 |
-| idx_dir | dir | 普通 | 按方向统计 |
-
-### **重要说明**
-
-#### **1. 一个订单可能有多笔成交**
-```
-订单 372793001458（25 ETH）被拆成 5 笔成交：
-  - tid: 28059324263109  → 0.9116 ETH
-  - tid: 449746928007068 → 12.7550 ETH
-  - tid: 648709636200215 → 2.7733 ETH
-  - tid: 954770577116485 → 8.5501 ETH
-  - tid: 1084573600026477 → 0.0100 ETH
-
-共享相同的 oid 和 hash，但每笔有唯一的 tid
-```
-
-#### **2. 唯一键必须用 tid**
-- ❌ **不能用 hash**：同一订单多笔成交会丢失数据
-- ✅ **必须用 tid**：每笔成交都有唯一 tid
-
-#### **3. start_position 的作用**
-记录每笔成交前的持仓，可以追踪持仓变化轨迹。
-
-#### **4. closedPnl 只在平仓时有值**
-- 开仓：`closedPnl = 0`
-- 平仓：`closedPnl > 0`（盈利）或 `closedPnl < 0`（亏损）
-
-### **使用示例**
-
-```sql
--- 查询某个地址的最近 10 笔成交
-SELECT * FROM hl_fills 
-WHERE address = '0x020ca66c30bec2c4fe3861a94e4db4a498a35872' 
-ORDER BY time DESC 
-LIMIT 10;
-
--- 查询某个订单的所有成交
-SELECT * FROM hl_fills 
-WHERE oid = 372793001458 
-ORDER BY tid;
-
--- 计算某个地址的总盈亏
-SELECT SUM(closed_pnl) as total_pnl, SUM(fee) as total_fee
-FROM hl_fills 
-WHERE address = '0x020ca66c30bec2c4fe3861a94e4db4a498a35872';
-
--- 统计胜率（只看平仓订单）
-SELECT 
-    COUNT(*) as total_closes,
-    SUM(CASE WHEN closed_pnl > 0 THEN 1 ELSE 0 END) as wins,
-    SUM(CASE WHEN closed_pnl > 0 THEN 1 ELSE 0 END) / COUNT(*) as win_rate
-FROM hl_fills 
-WHERE address = '0x...' AND dir LIKE 'Close%';
-```
-
----
-
-## v_order_summary（订单汇总视图）
-
-### **视图说明**
-将 `hl_fills` 表按订单（oid）聚合，提供**订单级别的汇总信息**。
-
-### **视图定义**
-
-```sql
-CREATE OR REPLACE VIEW v_order_summary AS
-SELECT 
-    address,
-    oid,
-    hash,
-    coin,
-    dir,
-    COUNT(*) as fill_count,                         -- 成交笔数
-    SUM(sz) as total_sz,                            -- 总数量
-    AVG(px) as avg_px,                              -- 平均价格
-    SUM(fee) as total_fee,                          -- 总手续费
-    SUM(closed_pnl) as total_pnl,                   -- 总盈亏
-    MIN(time) as first_fill_time,                   -- 首次成交时间
-    MAX(time) as last_fill_time,                    -- 最后成交时间
-    MIN(start_position) as start_position,          -- 订单前持仓
-    MIN(start_position) + (CASE 
-        WHEN dir LIKE '%Long' THEN SUM(sz)
-        WHEN dir LIKE '%Short' THEN -SUM(sz)
-        ELSE 0
-    END) as end_position,                           -- 订单后持仓
-    MAX(crossed) as is_crossed                      -- 是否全仓
-FROM hl_fills
-GROUP BY address, oid, hash, coin, dir;
-```
-
-### **字段说明**
-
-| 字段 | 类型 | 说明 | 示例 |
+| 字段 | 类型 | 必需 | 说明 |
 |------|------|------|------|
-| address | VARCHAR(66) | 钱包地址 | `0x020ca66c...` |
-| oid | BIGINT | 订单ID | `371504673897` |
-| hash | VARCHAR(100) | 订单哈希 | `0x7a6267f2...` |
-| coin | VARCHAR(20) | 币种 | `ETH` |
-| dir | VARCHAR(20) | 方向 | `Open Long` |
-| **fill_count** | INT | **成交笔数** | `10`（订单被拆成10笔） |
-| **total_sz** | DECIMAL | **总数量** | `25.0000` ETH |
-| **avg_px** | DECIMAL | **平均成交价** | `2119.60` |
-| **total_fee** | DECIMAL | **总手续费** | `15.896996` USDC |
-| **total_pnl** | DECIMAL | **总盈亏** | `0.0`（开仓订单） |
-| first_fill_time | BIGINT | 首次成交时间（毫秒） | `1775434788310` |
-| last_fill_time | BIGINT | 最后成交时间（毫秒） | `1775434788310` |
-| **start_position** | DECIMAL | **订单前持仓** | `7000.0000` |
-| **end_position** | DECIMAL | **订单后持仓** | `7025.0000` |
-| is_crossed | BOOLEAN | 是否全仓 | `1` (true) |
-
-### **计算逻辑**
-
-#### **end_position（订单后持仓）**
-```sql
-end_position = start_position + (CASE 
-    WHEN dir = 'Open Long'  THEN +total_sz
-    WHEN dir = 'Close Long' THEN -total_sz
-    WHEN dir = 'Open Short' THEN -total_sz
-    WHEN dir = 'Close Short' THEN +total_sz
-END)
-```
-
-**示例**：
-```
-订单前持仓: 7000.0000 ETH
-订单操作: Open Long 25 ETH
-订单后持仓: 7000 + 25 = 7025.0000 ETH ✅
-```
-
-### **使用示例**
-
-```sql
--- 查找被拆分最多的订单（流动性差）
-SELECT * FROM v_order_summary 
-WHERE fill_count > 50 
-ORDER BY fill_count DESC;
-
--- 查找高手续费订单
-SELECT oid, coin, total_sz, total_fee, total_fee / total_sz as fee_per_unit
-FROM v_order_summary 
-ORDER BY total_fee DESC 
-LIMIT 10;
-
--- 查找大额订单
-SELECT * FROM v_order_summary 
-WHERE total_sz > 100 
-ORDER BY total_sz DESC;
-
--- 统计某地址的订单数量
-SELECT 
-    address,
-    COUNT(*) as order_count,
-    AVG(fill_count) as avg_fills_per_order,
-    SUM(total_fee) as total_fees_paid
-FROM v_order_summary
-WHERE address = '0x...'
-GROUP BY address;
-```
-
----
-
-## 3. hl_position_snapshots
-
-### **表说明**
-存储用户的**账户级别持仓快照**（时间序列数据）。
-
-### **表结构**
-
-```sql
-CREATE TABLE hl_position_snapshots (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    address VARCHAR(66) NOT NULL COMMENT '钱包地址',
-    snapshot_time BIGINT NOT NULL COMMENT '快照时间戳(毫秒)',
-    account_value DECIMAL(20, 6) NOT NULL COMMENT '账户总价值',
-    total_margin_used DECIMAL(20, 6) NOT NULL COMMENT '已用保证金',
-    total_raw_usd DECIMAL(20, 6) COMMENT '钱包余额/USD净余额(可为负)',
-    total_ntl_pos DECIMAL(20, 6) COMMENT '总名义持仓价值',
-    withdrawable DECIMAL(20, 6) COMMENT '可提现金额',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入库时间（北京时间）',
-
-    UNIQUE KEY uk_address_time (address, snapshot_time),
-    INDEX idx_snapshot_time (snapshot_time)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='持仓快照(账户级别)';
-```
-
-### **字段说明**
-
-| 字段 | 类型 | 必需 | 说明 | API 来源 |
-|------|------|------|------|----------|
-| id | BIGINT | ✅ | 主键 | - |
-| address | VARCHAR(66) | ✅ | 钱包地址 | 请求参数 |
-| snapshot_time | BIGINT | ✅ | 快照时间戳（毫秒） | `time` |
-| account_value | DECIMAL(20,6) | ✅ | 账户总价值 | `marginSummary.accountValue` |
-| total_margin_used | DECIMAL(20,6) | ✅ | 已用保证金 | `marginSummary.totalMarginUsed` |
-| total_raw_usd | DECIMAL(20,6) | ❌ | 钱包余额 / USD 净余额（可能为负）⚠️ | `marginSummary.totalRawUsd` |
-| total_ntl_pos | DECIMAL(20,6) | ❌ | 总名义持仓价值 | `marginSummary.totalNtlPos` |
-| withdrawable | DECIMAL(20,6) | ❌ | 可提现金额 | `withdrawable` |
-| created_at | DATETIME | ✅ | 入库时间 | - |
+| `id` | bigint | ✅ | - |
+| `address` | varchar(66) | ✅ | 钱包地址 |
+| `calculated_at` | datetime | ✅ | 计算时间 |
+| `data_period_start` | bigint | ❌ | 数据起始时间戳(ms) |
+| `data_period_end` | bigint | ❌ | 数据结束时间戳(ms) |
+| `total_trades` | int | ✅ | 总交易次数 |
+| `win_rate` | decimal(5,2) | ❌ | 胜率(%) |
+| `avg_win_pnl` | decimal(20,6) | ❌ | 平均盈利 |
+| `avg_loss_pnl` | decimal(20,6) | ❌ | 平均亏损 |
+| `profit_loss_ratio` | decimal(10,2) | ❌ | 盈亏比 |
+| `total_realized_pnl` | decimal(20,6) | ❌ | 总已实现盈亏 |
+| `total_fee` | decimal(20,6) | ❌ | 总手续费 |
+| `avg_leverage` | decimal(10,2) | ❌ | 平均实际杠杆 |
+| `max_leverage` | decimal(10,2) | ❌ | 最大实际杠杆 |
+| `avg_margin_utilization` | decimal(5,2) | ❌ | 平均保证金使用率(%) |
+| `max_margin_utilization` | decimal(5,2) | ❌ | 最大保证金使用率(%) |
+| `coin_concentration` | decimal(5,2) | ❌ | 单币种集中度(%) |
+| `liquidation_count` | int | ❌ | 清算次数 |
+| `max_drawdown` | decimal(5,2) | ❌ | 最大回撤(%) |
+| `loss_add_ratio` | decimal(5,2) | ❌ | 浮亏加仓率(%) |
+| `hold_loss_ratio` | decimal(10,2) | ❌ | 死扛指数(亏损持仓时间/盈利持仓时间) |
+| `chase_ratio` | decimal(5,2) | ❌ | 追涨杀跌率(%) |
+| `total_loss_holding_seconds` | bigint | ❌ | 亏损持仓总时长(秒) |
+| `total_profit_holding_seconds` | bigint | ❌ | 盈利持仓总时长(秒) |
+| `avg_loss_holding_seconds` | decimal(20,2) | ❌ | 平均亏损持仓时长(秒) |
+| `avg_profit_holding_seconds` | decimal(20,2) | ❌ | 平均盈利持仓时长(秒) |
+| `active_days` | int | ❌ | 活跃天数 |
+| `avg_trades_per_day` | decimal(10,2) | ❌ | 日均交易次数 |
+| `last_trade_time` | bigint | ❌ | 最后一笔交易时间戳(ms) |
 
 ### **索引**
 
 | 索引名 | 字段 | 类型 | 用途 |
 |--------|------|------|------|
-| PRIMARY | id | 唯一 | 主键 |
-| uk_address_time | address, snapshot_time | **唯一** | **防止同一时刻重复** |
-| idx_snapshot_time | snapshot_time | 普通 | 按时间查询 |
-
-### **重要说明**
-
-#### **时间序列数据**
-- 每次采集插入**一条新快照**（不是覆盖）
-- 用于追踪账户价值变化、保证金使用率趋势
-- 唯一约束防止同一时刻重复采集
-
-#### **total_raw_usd 为负数的情况**
-
-**定义**：
-```
-total_raw_usd = 初始存入 + 所有已平仓盈亏 - 手续费 - 资金费 - 提现 + 追加存入
-```
-
-当 `total_raw_usd < 0` 时，表明账户的**历史累计亏损（含提现）超过初始本金**。
-
-**示例**：
-```sql
-account_value = 1,342,454.16 USDC       -- 当前账户总价值
-total_raw_usd = -18,153,503.34 USDC     -- 钱包余额（负数）
-total_ntl_pos = 19,495,957.50 USDC      -- 总名义持仓价值
-
-计算：
-account_value = total_raw_usd + unrealized_pnl
-1,342,454 ≈ -18,153,503 + 19,495,957 ✅
-```
-
-**这意味着**：
-- 用户历史累计亏损 1815 万 USDC
-- 但当前持仓未实现盈亏 +1949 万 USDC
-- 账户仍有净值 134 万 USDC
-- **高杠杆、高风险账户特征** 💀
-
-### **使用示例**
-
-```sql
--- 查询某地址的最近 10 次快照
-SELECT * FROM hl_position_snapshots 
-WHERE address = '0x020ca66c30bec2c4fe3861a94e4db4a498a35872' 
-ORDER BY snapshot_time DESC 
-LIMIT 10;
-
--- 查看账户价值变化趋势
-SELECT 
-    FROM_UNIXTIME(snapshot_time/1000) as time,
-    account_value,
-    total_margin_used,
-    ROUND(total_margin_used / account_value * 100, 2) as margin_ratio_pct
-FROM hl_position_snapshots 
-WHERE address = '0x...'
-ORDER BY snapshot_time ASC;
-
--- 计算最大回撤
-SELECT 
-    MAX(account_value) as peak_value,
-    MIN(account_value) as trough_value,
-    ROUND((MAX(account_value) - MIN(account_value)) / MAX(account_value) * 100, 2) as max_drawdown_pct
-FROM hl_position_snapshots 
-WHERE address = '0x...';
-```
+| PRIMARY | id | 唯一 | - |
+| idx_address_time | address | 普通 | - |
+| idx_calculated_at | calculated_at | 普通 | - |
 
 ---
 
-## 4. hl_position_details
+## 2. hl_address_list
 
 ### **表说明**
-存储每个快照中的**持仓明细**（每个币种的持仓信息）。
+地址列表
 
 ### **表结构**
 
 ```sql
-CREATE TABLE hl_position_details (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    snapshot_id BIGINT NOT NULL COMMENT '关联 hl_position_snapshots.id',
-    coin VARCHAR(20) NOT NULL COMMENT '币种',
-    szi DECIMAL(20, 8) NOT NULL COMMENT '持仓数量(正=多,负=空)',
-    entry_px DECIMAL(20, 6) NOT NULL COMMENT '开仓均价',
-    position_value DECIMAL(20, 6) NOT NULL COMMENT '仓位价值',
-    unrealized_pnl DECIMAL(20, 6) DEFAULT 0 COMMENT '未实现盈亏',
-    return_on_equity DECIMAL(10, 6) DEFAULT 0 COMMENT 'ROE(回报率)',
-    liquidation_px DECIMAL(20, 6) COMMENT '清算价(null=无风险)',
-    margin_used DECIMAL(20, 6) COMMENT '占用保证金',
-    leverage_type VARCHAR(20) COMMENT '杠杆类型:cross/isolated',
-    leverage_value INT COMMENT '实际杠杆倍数',
-    max_leverage INT COMMENT '最大允许杠杆',
-    cum_funding_all_time DECIMAL(20, 6) COMMENT '历史累计资金费',
-    cum_funding_since_open DECIMAL(20, 6) COMMENT '开仓后累计资金费',
-
-    FOREIGN KEY (snapshot_id) REFERENCES hl_position_snapshots(id) ON DELETE CASCADE,
-    INDEX idx_snapshot_coin (snapshot_id, coin),
-    INDEX idx_coin (coin)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='持仓明细(每个快照的持仓列表)';
+CREATE TABLE `hl_address_list` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `address` varchar(66) NOT NULL COMMENT '钱包地址',
+  `label` varchar(100) DEFAULT NULL COMMENT '地址标签/别名',
+  `source` varchar(50) DEFAULT 'hyperbot' COMMENT '来源:hyperbot/manual',
+  `first_seen_at` datetime NOT NULL COMMENT '首次发现时间',
+  `last_updated_at` datetime NOT NULL COMMENT '最后更新时间',
+  `status` enum('active','inactive','excluded') DEFAULT 'active' COMMENT '状态',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `address` (`address`),
+  KEY `idx_status` (`status`),
+  KEY `idx_last_updated` (`last_updated_at`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='地址列表';
 ```
 
 ### **字段说明**
 
-| 字段 | 类型 | 必需 | 说明 | API 来源 |
-|------|------|------|------|----------|
-| id | BIGINT | ✅ | 主键 | - |
-| snapshot_id | BIGINT | ✅ | 关联快照ID | 外键 |
-| coin | VARCHAR(20) | ✅ | 币种 | `position.coin` |
-| szi | DECIMAL(20,8) | ✅ | 持仓数量（正=多，负=空） | `position.szi` |
-| entry_px | DECIMAL(20,6) | ✅ | 开仓均价 | `position.entryPx` |
-| position_value | DECIMAL(20,6) | ❌ | 仓位价值 | `position.positionValue` |
-| unrealized_pnl | DECIMAL(20,6) | ❌ | 未实现盈亏 | `position.unrealizedPnl` |
-| return_on_equity | DECIMAL(10,6) | ❌ | 回报率 (ROE) | `position.returnOnEquity` |
-| liquidation_px | DECIMAL(20,6) | ❌ | 清算价（null=无风险） | `position.liquidationPx` |
-| margin_used | DECIMAL(20,6) | ❌ | 占用保证金 | `position.marginUsed` |
-| leverage_type | VARCHAR(20) | ❌ | 杠杆类型 | `position.leverage.type` |
-| leverage_value | INT | ❌ | 实际杠杆倍数 | `position.leverage.value` |
-| max_leverage | INT | ❌ | 最大允许杠杆 | `position.maxLeverage` |
-| cum_funding_all_time | DECIMAL(20,6) | ❌ | 历史累计资金费 | `position.cumFunding.allTime` |
-| cum_funding_since_open | DECIMAL(20,6) | ❌ | 开仓后累计资金费 | `position.cumFunding.sinceOpen` |
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `id` | bigint | ✅ | - |
+| `address` | varchar(66) | ✅ | 钱包地址 |
+| `label` | varchar(100) | ❌ | 地址标签/别名 |
+| `source` | varchar(50) | ❌ | 来源:hyperbot/manual |
+| `first_seen_at` | datetime | ✅ | 首次发现时间 |
+| `last_updated_at` | datetime | ✅ | 最后更新时间 |
+| `status` | enum('active','inactive','excluded') | ❌ | 状态 |
+| `created_at` | datetime | ✅ | - |
 
 ### **索引**
 
 | 索引名 | 字段 | 类型 | 用途 |
 |--------|------|------|------|
-| PRIMARY | id | 唯一 | 主键 |
-| FOREIGN KEY | snapshot_id | 外键 | 关联快照表 |
-| idx_snapshot_coin | snapshot_id, coin | 普通 | 按快照+币种查询 |
-| idx_coin | coin | 普通 | 按币种统计 |
-
-### **关联关系**
-
-```
-hl_position_snapshots (1) ←→ (N) hl_position_details
-一个快照包含多个持仓明细（N = 持仓币种数量）
-```
-
-### **使用示例**
-
-```sql
--- 查看最新快照的所有持仓
-SELECT 
-    d.coin,
-    d.szi,
-    d.entry_px,
-    d.unrealized_pnl,
-    d.leverage_type,
-    d.leverage_value
-FROM hl_position_details d
-JOIN hl_position_snapshots s ON d.snapshot_id = s.id
-WHERE s.address = '0x020ca66c30bec2c4fe3861a94e4db4a498a35872'
-  AND s.snapshot_time = (
-      SELECT MAX(snapshot_time) 
-      FROM hl_position_snapshots 
-      WHERE address = '0x020ca66c30bec2c4fe3861a94e4db4a498a35872'
-  );
-
--- 查看某币种的持仓历史
-SELECT 
-    FROM_UNIXTIME(s.snapshot_time/1000) as time,
-    d.szi,
-    d.unrealized_pnl,
-    d.leverage_value
-FROM hl_position_details d
-JOIN hl_position_snapshots s ON d.snapshot_id = s.id
-WHERE s.address = '0x...'
-  AND d.coin = 'ETH'
-ORDER BY s.snapshot_time ASC;
-
--- 统计各币种的平均盈亏
-SELECT 
-    d.coin,
-    COUNT(DISTINCT s.id) as snapshot_count,
-    AVG(d.unrealized_pnl) as avg_pnl,
-    MIN(d.unrealized_pnl) as min_pnl,
-    MAX(d.unrealized_pnl) as max_pnl
-FROM hl_position_details d
-JOIN hl_position_snapshots s ON d.snapshot_id = s.id
-WHERE s.address = '0x...'
-GROUP BY d.coin;
-```
+| PRIMARY | id | 唯一 | - |
+| address | address | 唯一 | - |
+| idx_status | status | 普通 | - |
+| idx_last_updated | last_updated_at | 普通 | - |
 
 ---
 
-## 🔄 数据流
+## 3. hl_backtest_results
 
+### **表说明**
+回测结果
+
+### **表结构**
+
+```sql
+CREATE TABLE `hl_backtest_results` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `address` varchar(66) NOT NULL COMMENT '钱包地址',
+  `backtest_name` varchar(100) DEFAULT NULL COMMENT '回测名称/批次',
+  `backtest_date` date NOT NULL COMMENT '回测日期',
+  `period_start` bigint NOT NULL COMMENT '回测期起始时间戳(ms)',
+  `period_end` bigint NOT NULL COMMENT '回测期结束时间戳(ms)',
+  `reverse_trade_count` int DEFAULT NULL COMMENT '反向交易次数',
+  `reverse_win_rate` decimal(5,2) DEFAULT NULL COMMENT '反向胜率(%)',
+  `reverse_total_pnl` decimal(20,6) DEFAULT NULL COMMENT '反向总盈亏',
+  `reverse_profit_loss_ratio` decimal(10,2) DEFAULT NULL COMMENT '反向盈亏比',
+  `max_drawdown` decimal(5,2) DEFAULT NULL COMMENT '最大回撤(%)',
+  `sharpe_ratio` decimal(10,2) DEFAULT NULL COMMENT '夏普比率',
+  `classification_stable` tinyint(1) DEFAULT NULL COMMENT '分类是否稳定',
+  `avg_score` decimal(10,2) DEFAULT NULL COMMENT '期间平均评分',
+  `score_volatility` decimal(10,2) DEFAULT NULL COMMENT '评分波动率',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_address` (`address`),
+  KEY `idx_backtest_name` (`backtest_name`),
+  KEY `idx_backtest_date` (`backtest_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='回测结果';
 ```
-API 采集
-   │
-   ├── userFills / userFillsByTime
-   │      ↓
-   │   hl_fills（原始成交数据）
-   │      ↓
-   │   v_order_summary（订单汇总视图）
-   │
-   └── clearinghouseState (user_state)
-          ↓
-       hl_position_snapshots（账户快照）
-          ↓
-       hl_position_details（持仓明细）
-          ↓
-       特征计算 & 分析
+
+### **字段说明**
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `id` | bigint | ✅ | - |
+| `address` | varchar(66) | ✅ | 钱包地址 |
+| `backtest_name` | varchar(100) | ❌ | 回测名称/批次 |
+| `backtest_date` | date | ✅ | 回测日期 |
+| `period_start` | bigint | ✅ | 回测期起始时间戳(ms) |
+| `period_end` | bigint | ✅ | 回测期结束时间戳(ms) |
+| `reverse_trade_count` | int | ❌ | 反向交易次数 |
+| `reverse_win_rate` | decimal(5,2) | ❌ | 反向胜率(%) |
+| `reverse_total_pnl` | decimal(20,6) | ❌ | 反向总盈亏 |
+| `reverse_profit_loss_ratio` | decimal(10,2) | ❌ | 反向盈亏比 |
+| `max_drawdown` | decimal(5,2) | ❌ | 最大回撤(%) |
+| `sharpe_ratio` | decimal(10,2) | ❌ | 夏普比率 |
+| `classification_stable` | tinyint(1) | ❌ | 分类是否稳定 |
+| `avg_score` | decimal(10,2) | ❌ | 期间平均评分 |
+| `score_volatility` | decimal(10,2) | ❌ | 评分波动率 |
+| `created_at` | datetime | ✅ | - |
+
+### **索引**
+
+| 索引名 | 字段 | 类型 | 用途 |
+|--------|------|------|------|
+| PRIMARY | id | 唯一 | - |
+| idx_address | address | 普通 | - |
+| idx_backtest_name | backtest_name | 普通 | - |
+| idx_backtest_date | backtest_date | 普通 | - |
+
+---
+
+## 4. hl_fills
+
+### **表说明**
+交易历史（原始成交数据）
+
+### **表结构**
+
+```sql
+CREATE TABLE `hl_fills` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `address` varchar(66) NOT NULL COMMENT '钱包地址',
+  `coin` varchar(20) NOT NULL COMMENT '币种(可能包含前缀如 xyz:GOLD)',
+  `sz` decimal(20,8) NOT NULL COMMENT '成交数量',
+  `px` decimal(20,6) NOT NULL COMMENT '成交价格',
+  `dir` varchar(20) NOT NULL COMMENT '方向:Open Long/Open Short/Close/Liquidation',
+  `closed_pnl` decimal(20,6) DEFAULT '0.000000' COMMENT '已实现盈亏(平仓时)',
+  `fee` decimal(20,6) DEFAULT '0.000000' COMMENT '手续费',
+  `fee_token` varchar(10) DEFAULT 'USDC' COMMENT '手续费币种',
+  `time` bigint NOT NULL COMMENT '成交时间戳(ms)',
+  `hash` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '交易哈希',
+  `tid` bigint DEFAULT NULL COMMENT '成交ID（唯一标识）',
+  `oid` bigint DEFAULT NULL COMMENT '订单ID',
+  `twap_id` varchar(100) DEFAULT NULL COMMENT 'TWAP订单ID',
+  `side` varchar(5) DEFAULT NULL COMMENT 'A=主动买/B=主动卖',
+  `start_position` decimal(20,8) DEFAULT NULL COMMENT '成交前持仓',
+  `crossed` tinyint(1) DEFAULT '1' COMMENT '是否全仓模式',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入库时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_tid` (`tid`),
+  KEY `idx_address_time` (`address`,`time` DESC),
+  KEY `idx_coin` (`coin`),
+  KEY `idx_dir` (`dir`),
+  KEY `idx_time` (`time`),
+  KEY `idx_oid` (`oid`),
+  KEY `idx_hash` (`hash`)
+) ENGINE=InnoDB AUTO_INCREMENT=22994 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='交易历史(原始数据)';
+```
+
+### **字段说明**
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `id` | bigint | ✅ | - |
+| `address` | varchar(66) | ✅ | 钱包地址 |
+| `coin` | varchar(20) | ✅ | 币种(可能包含前缀如 xyz:GOLD) |
+| `sz` | decimal(20,8) | ✅ | 成交数量 |
+| `px` | decimal(20,6) | ✅ | 成交价格 |
+| `dir` | varchar(20) | ✅ | 方向:Open Long/Open Short/Close/Liquidation |
+| `closed_pnl` | decimal(20,6) | ❌ | 已实现盈亏(平仓时) |
+| `fee` | decimal(20,6) | ❌ | 手续费 |
+| `fee_token` | varchar(10) | ❌ | 手续费币种 |
+| `time` | bigint | ✅ | 成交时间戳(ms) |
+| `hash` | varchar(100) | ❌ | 交易哈希 |
+| `tid` | bigint | ❌ | 成交ID（唯一标识） |
+| `oid` | bigint | ❌ | 订单ID |
+| `twap_id` | varchar(100) | ❌ | TWAP订单ID |
+| `side` | varchar(5) | ❌ | A=主动买/B=主动卖 |
+| `start_position` | decimal(20,8) | ❌ | 成交前持仓 |
+| `crossed` | tinyint(1) | ❌ | 是否全仓模式 |
+| `created_at` | datetime | ✅ | 入库时间 |
+
+### **索引**
+
+| 索引名 | 字段 | 类型 | 用途 |
+|--------|------|------|------|
+| PRIMARY | id | 唯一 | - |
+| uk_tid | tid | 唯一 | - |
+| idx_address_time | address | 普通 | - |
+| idx_coin | coin | 普通 | - |
+| idx_dir | dir | 普通 | - |
+| idx_time | time | 普通 | - |
+| idx_oid | oid | 普通 | - |
+| idx_hash | hash | 普通 | - |
+
+---
+
+## 5. hl_follow_trades
+
+### **表说明**
+跟单交易记录
+
+### **表结构**
+
+```sql
+CREATE TABLE `hl_follow_trades` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `trade_id` varchar(50) NOT NULL COMMENT '交易ID',
+  `signal_id` varchar(50) NOT NULL COMMENT '关联信号ID',
+  `source_address` varchar(66) NOT NULL COMMENT '脆弱地址',
+  `coin` varchar(20) NOT NULL COMMENT '币种',
+  `direction` varchar(20) NOT NULL COMMENT '方向:Long/Short',
+  `action` enum('open','add','reduce','close') NOT NULL COMMENT '操作:开仓/加仓/减仓/平仓',
+  `size` decimal(20,8) NOT NULL COMMENT '数量',
+  `entry_price` decimal(20,6) NOT NULL COMMENT '开仓价',
+  `close_price` decimal(20,6) DEFAULT NULL COMMENT '平仓价(如果已平仓)',
+  `fee` decimal(20,6) NOT NULL COMMENT '手续费',
+  `realized_pnl` decimal(20,6) DEFAULT NULL COMMENT '已实现盈亏(平仓后)',
+  `trade_status` enum('open','closed') DEFAULT 'open' COMMENT '交易状态',
+  `opened_at` datetime NOT NULL COMMENT '开仓时间',
+  `closed_at` datetime DEFAULT NULL COMMENT '平仓时间',
+  `original_fill_hash` varchar(100) DEFAULT NULL COMMENT '脆弱地址的原始 fill hash',
+  `our_fill_hash` varchar(100) DEFAULT NULL COMMENT '我们的成交 hash',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `trade_id` (`trade_id`),
+  KEY `signal_id` (`signal_id`),
+  KEY `idx_source_address` (`source_address`),
+  KEY `idx_trade_status` (`trade_status`,`coin`),
+  KEY `idx_opened_at` (`opened_at` DESC),
+  CONSTRAINT `hl_follow_trades_ibfk_1` FOREIGN KEY (`signal_id`) REFERENCES `hl_reverse_signals` (`signal_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='跟单交易记录';
+```
+
+### **字段说明**
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `id` | bigint | ✅ | - |
+| `trade_id` | varchar(50) | ✅ | 交易ID |
+| `signal_id` | varchar(50) | ✅ | 关联信号ID |
+| `source_address` | varchar(66) | ✅ | 脆弱地址 |
+| `coin` | varchar(20) | ✅ | 币种 |
+| `direction` | varchar(20) | ✅ | 方向:Long/Short |
+| `action` | enum('open','add','reduce','close') | ✅ | 操作:开仓/加仓/减仓/平仓 |
+| `size` | decimal(20,8) | ✅ | 数量 |
+| `entry_price` | decimal(20,6) | ✅ | 开仓价 |
+| `close_price` | decimal(20,6) | ❌ | 平仓价(如果已平仓) |
+| `fee` | decimal(20,6) | ✅ | 手续费 |
+| `realized_pnl` | decimal(20,6) | ❌ | 已实现盈亏(平仓后) |
+| `trade_status` | enum('open','closed') | ❌ | 交易状态 |
+| `opened_at` | datetime | ✅ | 开仓时间 |
+| `closed_at` | datetime | ❌ | 平仓时间 |
+| `original_fill_hash` | varchar(100) | ❌ | 脆弱地址的原始 fill hash |
+| `our_fill_hash` | varchar(100) | ❌ | 我们的成交 hash |
+| `created_at` | datetime | ✅ | - |
+
+### **索引**
+
+| 索引名 | 字段 | 类型 | 用途 |
+|--------|------|------|------|
+| PRIMARY | id | 唯一 | - |
+| trade_id | trade_id | 唯一 | - |
+| signal_id | signal_id | 普通 | - |
+| idx_source_address | source_address | 普通 | - |
+| idx_trade_status | trade_status | 普通 | - |
+| idx_opened_at | opened_at | 普通 | - |
+
+---
+
+## 6. hl_fragile_pool
+
+### **表说明**
+脆弱地址池（实时监控）
+
+### **表结构**
+
+```sql
+CREATE TABLE `hl_fragile_pool` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `address` varchar(66) NOT NULL COMMENT '钱包地址',
+  `label` varchar(100) DEFAULT NULL COMMENT '地址标签',
+  `fragile_level` enum('L1','L2','L3','L4') NOT NULL COMMENT '脆弱等级',
+  `pool_weight` decimal(5,4) NOT NULL DEFAULT '0.0000' COMMENT '池子权重(0-1)',
+  `monitor_status` enum('active','paused','stopped') DEFAULT 'active' COMMENT '监控状态',
+  `last_monitored_at` datetime DEFAULT NULL COMMENT '最后监控时间',
+  `last_fill_time` bigint DEFAULT NULL COMMENT '最后一笔 fill 时间戳(ms,用于增量获取)',
+  `total_signals` int DEFAULT '0' COMMENT '生成信号总数',
+  `total_trades` int DEFAULT '0' COMMENT '跟单交易总数',
+  `entry_date` date NOT NULL COMMENT '入池日期',
+  `entry_score` int DEFAULT NULL COMMENT '入池时的评分',
+  `exit_date` date DEFAULT NULL COMMENT '出池日期(NULL=仍在池中)',
+  `exit_reason` varchar(100) DEFAULT NULL COMMENT '出池原因',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `address` (`address`),
+  KEY `idx_monitor_status` (`monitor_status`,`last_monitored_at`),
+  KEY `idx_level` (`fragile_level`),
+  KEY `idx_entry_date` (`entry_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='脆弱地址池(实时监控)';
+```
+
+### **字段说明**
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `id` | bigint | ✅ | - |
+| `address` | varchar(66) | ✅ | 钱包地址 |
+| `label` | varchar(100) | ❌ | 地址标签 |
+| `fragile_level` | enum('L1','L2','L3','L4') | ✅ | 脆弱等级 |
+| `pool_weight` | decimal(5,4) | ✅ | 池子权重(0-1) |
+| `monitor_status` | enum('active','paused','stopped') | ❌ | 监控状态 |
+| `last_monitored_at` | datetime | ❌ | 最后监控时间 |
+| `last_fill_time` | bigint | ❌ | 最后一笔 fill 时间戳(ms,用于增量获取) |
+| `total_signals` | int | ❌ | 生成信号总数 |
+| `total_trades` | int | ❌ | 跟单交易总数 |
+| `entry_date` | date | ✅ | 入池日期 |
+| `entry_score` | int | ❌ | 入池时的评分 |
+| `exit_date` | date | ❌ | 出池日期(NULL=仍在池中) |
+| `exit_reason` | varchar(100) | ❌ | 出池原因 |
+| `created_at` | datetime | ✅ | - |
+| `updated_at` | datetime | ✅ | - |
+
+### **索引**
+
+| 索引名 | 字段 | 类型 | 用途 |
+|--------|------|------|------|
+| PRIMARY | id | 唯一 | - |
+| address | address | 唯一 | - |
+| idx_monitor_status | monitor_status | 普通 | - |
+| idx_level | fragile_level | 普通 | - |
+| idx_entry_date | entry_date | 普通 | - |
+
+---
+
+## 7. hl_fragile_scores
+
+### **表说明**
+脆弱地址评分
+
+### **表结构**
+
+```sql
+CREATE TABLE `hl_fragile_scores` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `address` varchar(66) NOT NULL COMMENT '钱包地址',
+  `feature_id` bigint DEFAULT NULL COMMENT '关联 hl_address_features.id',
+  `scored_at` datetime NOT NULL COMMENT '评分时间',
+  `risk_behavior_score` int NOT NULL COMMENT '风险行为评分 /40',
+  `loss_feature_score` int NOT NULL COMMENT '亏损特征评分 /35',
+  `mentality_score` int NOT NULL COMMENT '心态特征评分 /25',
+  `total_score` int NOT NULL COMMENT '总分 /100',
+  `fragile_level` enum('L1','L2','L3','L4') DEFAULT NULL COMMENT '脆弱等级',
+  `in_pool` tinyint(1) DEFAULT '0' COMMENT '是否入池',
+  `pool_weight` decimal(5,4) DEFAULT '0.0000' COMMENT '池子权重',
+  `pool_entry_date` date DEFAULT NULL COMMENT '入池日期',
+  `pool_exit_date` date DEFAULT NULL COMMENT '出池日期',
+  PRIMARY KEY (`id`),
+  KEY `feature_id` (`feature_id`),
+  KEY `idx_address_time` (`address`,`scored_at` DESC),
+  KEY `idx_level_score` (`fragile_level`,`total_score` DESC),
+  KEY `idx_in_pool` (`in_pool`,`fragile_level`),
+  CONSTRAINT `hl_fragile_scores_ibfk_1` FOREIGN KEY (`feature_id`) REFERENCES `hl_address_features` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='脆弱地址评分';
+```
+
+### **字段说明**
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `id` | bigint | ✅ | - |
+| `address` | varchar(66) | ✅ | 钱包地址 |
+| `feature_id` | bigint | ❌ | 关联 hl_address_features.id |
+| `scored_at` | datetime | ✅ | 评分时间 |
+| `risk_behavior_score` | int | ✅ | 风险行为评分 /40 |
+| `loss_feature_score` | int | ✅ | 亏损特征评分 /35 |
+| `mentality_score` | int | ✅ | 心态特征评分 /25 |
+| `total_score` | int | ✅ | 总分 /100 |
+| `fragile_level` | enum('L1','L2','L3','L4') | ❌ | 脆弱等级 |
+| `in_pool` | tinyint(1) | ❌ | 是否入池 |
+| `pool_weight` | decimal(5,4) | ❌ | 池子权重 |
+| `pool_entry_date` | date | ❌ | 入池日期 |
+| `pool_exit_date` | date | ❌ | 出池日期 |
+
+### **索引**
+
+| 索引名 | 字段 | 类型 | 用途 |
+|--------|------|------|------|
+| PRIMARY | id | 唯一 | - |
+| feature_id | feature_id | 普通 | - |
+| idx_address_time | address | 普通 | - |
+| idx_level_score | fragile_level | 普通 | - |
+| idx_in_pool | in_pool | 普通 | - |
+
+---
+
+## 8. hl_monitor_logs
+
+### **表说明**
+实时监控日志
+
+### **表结构**
+
+```sql
+CREATE TABLE `hl_monitor_logs` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `address` varchar(66) NOT NULL COMMENT '监控地址',
+  `check_time` datetime NOT NULL COMMENT '检查时间',
+  `has_new_fills` tinyint(1) NOT NULL COMMENT '是否有新 fills',
+  `new_fills_count` int DEFAULT '0' COMMENT '新 fills 数量',
+  `signals_generated` int DEFAULT '0' COMMENT '生成信号数量',
+  `execution_time_ms` int DEFAULT NULL COMMENT '执行耗时(ms)',
+  `error_occurred` tinyint(1) DEFAULT '0' COMMENT '是否发生错误',
+  `error_message` text COMMENT '错误信息',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_address_time` (`address`,`check_time` DESC),
+  KEY `idx_check_time` (`check_time` DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='实时监控日志';
+```
+
+### **字段说明**
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `id` | bigint | ✅ | - |
+| `address` | varchar(66) | ✅ | 监控地址 |
+| `check_time` | datetime | ✅ | 检查时间 |
+| `has_new_fills` | tinyint(1) | ✅ | 是否有新 fills |
+| `new_fills_count` | int | ❌ | 新 fills 数量 |
+| `signals_generated` | int | ❌ | 生成信号数量 |
+| `execution_time_ms` | int | ❌ | 执行耗时(ms) |
+| `error_occurred` | tinyint(1) | ❌ | 是否发生错误 |
+| `error_message` | text | ❌ | 错误信息 |
+| `created_at` | datetime | ✅ | - |
+
+### **索引**
+
+| 索引名 | 字段 | 类型 | 用途 |
+|--------|------|------|------|
+| PRIMARY | id | 唯一 | - |
+| idx_address_time | address | 普通 | - |
+| idx_check_time | check_time | 普通 | - |
+
+---
+
+## 9. hl_position_details
+
+### **表说明**
+持仓明细
+
+### **表结构**
+
+```sql
+CREATE TABLE `hl_position_details` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `snapshot_id` bigint NOT NULL COMMENT '关联 hl_position_snapshots.id',
+  `coin` varchar(20) NOT NULL COMMENT '币种',
+  `szi` decimal(20,8) NOT NULL COMMENT '持仓数量(正=多,负=空)',
+  `entry_px` decimal(20,6) NOT NULL COMMENT '开仓均价',
+  `position_value` decimal(20,6) NOT NULL COMMENT '仓位价值',
+  `unrealized_pnl` decimal(20,6) DEFAULT '0.000000' COMMENT '未实现盈亏',
+  `return_on_equity` decimal(10,6) DEFAULT '0.000000' COMMENT 'ROE',
+  `liquidation_px` decimal(20,6) DEFAULT NULL COMMENT '清算价',
+  `margin_used` decimal(20,6) DEFAULT NULL COMMENT '占用保证金',
+  `leverage_type` varchar(20) DEFAULT NULL COMMENT '杠杆类型:cross/isolated',
+  `leverage_value` int DEFAULT NULL COMMENT '杠杆倍数',
+  `max_leverage` int DEFAULT NULL COMMENT '最大杠杆',
+  `cum_funding_all_time` decimal(20,6) DEFAULT NULL COMMENT '历史累计资金费',
+  `cum_funding_since_open` decimal(20,6) DEFAULT NULL COMMENT '开仓后累计资金费',
+  PRIMARY KEY (`id`),
+  KEY `idx_snapshot_coin` (`snapshot_id`,`coin`),
+  KEY `idx_coin` (`coin`),
+  CONSTRAINT `hl_position_details_ibfk_1` FOREIGN KEY (`snapshot_id`) REFERENCES `hl_position_snapshots` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='持仓明细(每个快照的持仓列表)';
+```
+
+### **字段说明**
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `id` | bigint | ✅ | - |
+| `snapshot_id` | bigint | ✅ | 关联 hl_position_snapshots.id |
+| `coin` | varchar(20) | ✅ | 币种 |
+| `szi` | decimal(20,8) | ✅ | 持仓数量(正=多,负=空) |
+| `entry_px` | decimal(20,6) | ✅ | 开仓均价 |
+| `position_value` | decimal(20,6) | ✅ | 仓位价值 |
+| `unrealized_pnl` | decimal(20,6) | ❌ | 未实现盈亏 |
+| `return_on_equity` | decimal(10,6) | ❌ | ROE |
+| `liquidation_px` | decimal(20,6) | ❌ | 清算价 |
+| `margin_used` | decimal(20,6) | ❌ | 占用保证金 |
+| `leverage_type` | varchar(20) | ❌ | 杠杆类型:cross/isolated |
+| `leverage_value` | int | ❌ | 杠杆倍数 |
+| `max_leverage` | int | ❌ | 最大杠杆 |
+| `cum_funding_all_time` | decimal(20,6) | ❌ | 历史累计资金费 |
+| `cum_funding_since_open` | decimal(20,6) | ❌ | 开仓后累计资金费 |
+
+### **索引**
+
+| 索引名 | 字段 | 类型 | 用途 |
+|--------|------|------|------|
+| PRIMARY | id | 唯一 | - |
+| idx_snapshot_coin | snapshot_id | 普通 | - |
+| idx_coin | coin | 普通 | - |
+
+---
+
+## 10. hl_position_snapshots
+
+### **表说明**
+持仓快照（汇总）
+
+### **表结构**
+
+```sql
+CREATE TABLE `hl_position_snapshots` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `address` varchar(66) NOT NULL COMMENT '钱包地址',
+  `snapshot_time` bigint NOT NULL COMMENT 'API 返回的时间戳(ms)',
+  `snapshot_date` date DEFAULT NULL COMMENT '快照日期（代表哪一天的数据）',
+  `account_value` decimal(20,6) NOT NULL COMMENT '账户价值',
+  `total_margin_used` decimal(20,6) NOT NULL COMMENT '已用保证金',
+  `total_raw_usd` decimal(20,6) DEFAULT NULL COMMENT '钱包余额 / USD 净余额（可为负，全部充值-全部提现-资金费用净利润等）',
+  `total_ntl_pos` decimal(20,6) DEFAULT NULL COMMENT '总名义持仓价值',
+  `withdrawable` decimal(20,6) DEFAULT NULL COMMENT '可提现金额',
+  `pnl_day` decimal(20,6) DEFAULT NULL COMMENT '当日盈亏 (USDC)',
+  `pnl_week` decimal(20,6) DEFAULT NULL COMMENT '本周盈亏 (USDC)',
+  `pnl_month` decimal(20,6) DEFAULT NULL COMMENT '本月盈亏 (USDC)',
+  `pnl_all_time` decimal(20,6) DEFAULT NULL COMMENT '历史总盈亏 (USDC)',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入库时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_address_time` (`address`,`snapshot_time`),
+  KEY `idx_address_time` (`address`,`snapshot_time` DESC),
+  KEY `idx_snapshot_time` (`snapshot_time`),
+  KEY `idx_snapshot_date` (`snapshot_date`)
+) ENGINE=InnoDB AUTO_INCREMENT=15 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='持仓快照(汇总)';
+```
+
+### **字段说明**
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `id` | bigint | ✅ | - |
+| `address` | varchar(66) | ✅ | 钱包地址 |
+| `snapshot_time` | bigint | ✅ | API 返回的时间戳(ms) |
+| `snapshot_date` | date | ❌ | 快照日期（代表哪一天的数据） |
+| `account_value` | decimal(20,6) | ✅ | 账户价值 |
+| `total_margin_used` | decimal(20,6) | ✅ | 已用保证金 |
+| `total_raw_usd` | decimal(20,6) | ❌ | 钱包余额 / USD 净余额（可为负，全部充值-全部提现-资金费用净利润等） |
+| `total_ntl_pos` | decimal(20,6) | ❌ | 总名义持仓价值 |
+| `withdrawable` | decimal(20,6) | ❌ | 可提现金额 |
+| `pnl_day` | decimal(20,6) | ❌ | 当日盈亏 (USDC) |
+| `pnl_week` | decimal(20,6) | ❌ | 本周盈亏 (USDC) |
+| `pnl_month` | decimal(20,6) | ❌ | 本月盈亏 (USDC) |
+| `pnl_all_time` | decimal(20,6) | ❌ | 历史总盈亏 (USDC) |
+| `created_at` | datetime | ✅ | 入库时间 |
+
+### **索引**
+
+| 索引名 | 字段 | 类型 | 用途 |
+|--------|------|------|------|
+| PRIMARY | id | 唯一 | - |
+| uk_address_time | address | 唯一 | - |
+| idx_address_time | address | 普通 | - |
+| idx_snapshot_time | snapshot_time | 普通 | - |
+| idx_snapshot_date | snapshot_date | 普通 | - |
+
+---
+
+## 11. hl_reverse_signals
+
+### **表说明**
+反向跟单信号
+
+### **表结构**
+
+```sql
+CREATE TABLE `hl_reverse_signals` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `signal_id` varchar(50) NOT NULL COMMENT '信号ID(防重复)',
+  `source_address` varchar(66) NOT NULL COMMENT '脆弱地址',
+  `signal_type` enum('new_position','add_position','close_position','liquidation') NOT NULL COMMENT '信号类型',
+  `coin` varchar(20) NOT NULL COMMENT '币种',
+  `original_direction` varchar(20) NOT NULL COMMENT '脆弱地址的操作方向',
+  `original_size` decimal(20,8) NOT NULL COMMENT '脆弱地址的操作数量',
+  `original_price` decimal(20,6) NOT NULL COMMENT '脆弱地址的成交价',
+  `original_fill_time` bigint NOT NULL COMMENT '脆弱地址的成交时间戳(ms)',
+  `reverse_direction` varchar(20) NOT NULL COMMENT '反向操作方向',
+  `reverse_size` decimal(20,8) NOT NULL COMMENT '反向操作建议数量',
+  `reverse_weight` decimal(5,4) NOT NULL COMMENT '信号权重(基于地址权重)',
+  `signal_status` enum('pending','executed','cancelled','expired') DEFAULT 'pending' COMMENT '信号状态',
+  `generated_at` datetime NOT NULL COMMENT '生成时间',
+  `executed_at` datetime DEFAULT NULL COMMENT '执行时间',
+  `cancel_reason` varchar(200) DEFAULT NULL COMMENT '取消原因',
+  `executed_price` decimal(20,6) DEFAULT NULL COMMENT '实际成交价',
+  `executed_size` decimal(20,8) DEFAULT NULL COMMENT '实际成交量',
+  `slippage` decimal(10,6) DEFAULT NULL COMMENT '滑点(%)',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `signal_id` (`signal_id`),
+  KEY `idx_source_address` (`source_address`,`generated_at` DESC),
+  KEY `idx_signal_status` (`signal_status`,`generated_at` DESC),
+  KEY `idx_coin` (`coin`),
+  KEY `idx_generated_at` (`generated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='反向跟单信号';
+```
+
+### **字段说明**
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `id` | bigint | ✅ | - |
+| `signal_id` | varchar(50) | ✅ | 信号ID(防重复) |
+| `source_address` | varchar(66) | ✅ | 脆弱地址 |
+| `signal_type` | enum('new_position','add_position','close_position','liquidation') | ✅ | 信号类型 |
+| `coin` | varchar(20) | ✅ | 币种 |
+| `original_direction` | varchar(20) | ✅ | 脆弱地址的操作方向 |
+| `original_size` | decimal(20,8) | ✅ | 脆弱地址的操作数量 |
+| `original_price` | decimal(20,6) | ✅ | 脆弱地址的成交价 |
+| `original_fill_time` | bigint | ✅ | 脆弱地址的成交时间戳(ms) |
+| `reverse_direction` | varchar(20) | ✅ | 反向操作方向 |
+| `reverse_size` | decimal(20,8) | ✅ | 反向操作建议数量 |
+| `reverse_weight` | decimal(5,4) | ✅ | 信号权重(基于地址权重) |
+| `signal_status` | enum('pending','executed','cancelled','expired') | ❌ | 信号状态 |
+| `generated_at` | datetime | ✅ | 生成时间 |
+| `executed_at` | datetime | ❌ | 执行时间 |
+| `cancel_reason` | varchar(200) | ❌ | 取消原因 |
+| `executed_price` | decimal(20,6) | ❌ | 实际成交价 |
+| `executed_size` | decimal(20,8) | ❌ | 实际成交量 |
+| `slippage` | decimal(10,6) | ❌ | 滑点(%) |
+| `created_at` | datetime | ✅ | - |
+
+### **索引**
+
+| 索引名 | 字段 | 类型 | 用途 |
+|--------|------|------|------|
+| PRIMARY | id | 唯一 | - |
+| signal_id | signal_id | 唯一 | - |
+| idx_source_address | source_address | 普通 | - |
+| idx_signal_status | signal_status | 普通 | - |
+| idx_coin | coin | 普通 | - |
+| idx_generated_at | generated_at | 普通 | - |
+
+---
+
+## 视图: v_order_summary
+
+```sql
+CREATE ALGORITHM=UNDEFINED DEFINER=`admin`@`%` SQL SECURITY DEFINER VIEW `v_order_summary` AS select `hl_fills`.`address` AS `address`,`hl_fills`.`oid` AS `oid`,`hl_fills`.`hash` AS `hash`,`hl_fills`.`coin` AS `coin`,`hl_fills`.`dir` AS `dir`,count(0) AS `fill_count`,sum(`hl_fills`.`sz`) AS `total_sz`,avg(`hl_fills`.`px`) AS `avg_px`,sum(`hl_fills`.`fee`) AS `total_fee`,sum(`hl_fills`.`closed_pnl`) AS `total_pnl`,min(`hl_fills`.`time`) AS `first_fill_time`,max(`hl_fills`.`time`) AS `last_fill_time`,min(`hl_fills`.`start_position`) AS `start_position`,(min(`hl_fills`.`start_position`) + (case when (`hl_fills`.`dir` like '%Long') then sum(`hl_fills`.`sz`) when (`hl_fills`.`dir` like '%Short') then -(sum(`hl_fills`.`sz`)) else 0 end)) AS `end_position`,max(`hl_fills`.`crossed`) AS `is_crossed` from `hl_fills` group by `hl_fills`.`address`,`hl_fills`.`oid`,`hl_fills`.`hash`,`hl_fills`.`coin`,`hl_fills`.`dir`;
 ```
 
 ---
 
 ## 📝 维护日志
 
-### 2026-04-07
-- ✅ 创建 `hl_address_list` 表
-- ✅ 创建 `hl_fills` 表（含完整字段）
-- ✅ 添加 `tid`, `oid`, `start_position`, `crossed`, `fee_token`, `twap_id` 字段
-- ✅ 创建 `v_order_summary` 视图
-- ✅ 修复 `end_position` 计算逻辑
+### 2026-04-09
+- ✅ 从数据库自动同步表结构
 
 ---
 
-## 📚 相关文档
-
-- [API 文档](./HYPERLIQUID_API.md)
-- [字段详解](./FILL_FIELDS.md)
-- [时区策略](./TIMEZONE_POLICY.md)
-
----
-
-**最后更新**: 2026-04-07
+**最后更新**: 2026-04-09

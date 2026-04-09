@@ -43,7 +43,7 @@ vim config/.env
 DB_HOST=fa-bi.cp2608aa2gcx.us-west-1.rds.amazonaws.com
 DB_PORT=3306
 DB_USER=admin
-DB_PASSWORD=XFGAd9wJYMJqSD7C
+DB_PASSWORD=YOUR_SECURE_PASSWORD_OR_ENV_VAR
 DB_NAME=fourieralpha_hl
 ```
 
@@ -95,19 +95,20 @@ crontab -e
 # CryptoAnalysis 数据采集定时任务
 # 时区：Asia/Shanghai（北京时间）
 # ============================================================
-CRON_TZ=Asia/Shanghai
+# 以下时间均为 UTC，对应北京时间 00:xx（服务器为 UTC，不使用 CRON_TZ）
+# UTC 16:xx = 北京时间次日 00:xx
 
-# 00:00 fills 增量更新（新地址自动全量，已有地址增量）
-0 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_address_fills_incremental.py >> /opt/CryptoAnalysis/logs/fills.log 2>&1
+# 北京 00:00 fills 增量更新（新地址自动全量，已有地址增量）
+0 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_address_fills_incremental.py >> /opt/CryptoAnalysis/logs/fills.log 2>&1
 
-# 00:03 持仓快照（snapshot_date 自动归为前一天）
-3 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_all_position_snapshots.py >> /opt/CryptoAnalysis/logs/snapshot.log 2>&1
+# 北京 00:03 持仓快照（snapshot_date 自动归为前一天）
+3 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_all_position_snapshots.py >> /opt/CryptoAnalysis/logs/snapshot.log 2>&1
 
-# 00:10 特征计算（依赖 fills + 快照数据）
-10 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_address_features.py >> /opt/CryptoAnalysis/logs/features.log 2>&1
+# 北京 00:10 特征计算（依赖 fills + 快照数据）
+10 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_address_features.py >> /opt/CryptoAnalysis/logs/features.log 2>&1
 
-# 00:20 评分计算（依赖特征计算结果）
-20 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_fragile_scores.py >> /opt/CryptoAnalysis/logs/scores.log 2>&1
+# 北京 00:20 评分计算（依赖特征计算结果）
+20 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_fragile_scores.py >> /opt/CryptoAnalysis/logs/scores.log 2>&1
 ```
 
 > ⚠️ **关键注意事项**：

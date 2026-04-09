@@ -4,8 +4,8 @@
 
 ```
 scripts/
-├── fetch_address_fills_incremental.py   # 统一版 fills 采集（全量/增量自动判断）⭐
-├── fetch_address_fills_historical.py    # 历史 fills 补采（特殊用途）
+├── fetch_address_fills_incremental.py   # 统一版 fills 采集（全量/增量自动判断）⭐ 日常使用
+├── fetch_address_fills_backfill.py      # 历史 fills 补采（仅在需要补 90 天历史时手动执行一次）
 ├── fetch_all_position_snapshots.py      # 批量获取持仓快照（含 PnL）⭐
 ├── fetch_position_snapshots.py          # 单地址持仓快照
 ├── calculate_address_features.py        # 地址特征计算
@@ -14,7 +14,7 @@ scripts/
 
 ---
 
-## 1. fetch_address_fills_incremental.py（统一版 fills 采集）⭐
+## 1. fetch_address_fills_incremental.py（统一版 fills 采集）⭐ 日常使用
 
 ### 功能说明
 
@@ -90,7 +90,56 @@ Hyperliquid 地址交易数据获取（批量模式）
 
 ---
 
-## 2. fetch_all_position_snapshots.py（批量持仓快照）⭐
+## 2. fetch_address_fills_backfill.py（历史数据补采）
+
+### 功能说明
+
+专门用于**回溯超过 2000 条的历史数据**，按 30 天为一批次往前回溯，直到达到目标天数（默认 90 天）。
+
+> ⚠️ **仅在以下场景手动执行一次**：
+> - 新地址刚加入，需要补齐 90 天完整历史
+> - `fetch_address_fills_incremental.py` 全量只能拿最近 2000 条，不足以覆盖 90 天时
+> - **日常增量更新请使用 `fetch_address_fills_incremental.py`，不要用此脚本**
+
+### 与 incremental 的区别
+
+| 对比项 | incremental（日常） | backfill（补历史） |
+|--------|--------------------|-----------------|
+| 使用场景 | 每日 cron 定时运行 | 手动执行一次 |
+| 数据范围 | 最近 2000 条 / 增量 | 往前回溯 90 天 |
+| 批量模式 | ✅ 支持所有 active 地址 | ❌ 仅单地址 |
+| 写入方式 | UPSERT（ON DUPLICATE KEY UPDATE） | INSERT IGNORE |
+
+### 使用方式
+
+```bash
+# 补采单个地址（默认回溯 90 天）
+python scripts/fetch_address_fills_backfill.py 0x020ca66c30bec2c4fe3861a94e4db4a498a35872
+
+# 补采单个地址，指定回溯天数
+python scripts/fetch_address_fills_backfill.py 0x020ca66c30bec2c4fe3861a94e4db4a498a35872 180
+```
+
+### 执行流程
+
+```
+查询数据库中最早的 fill 时间
+   ↓
+计算目标时间（当前时间 - 90 天）
+   ↓
+如果已有足够数据 → 直接退出
+   ↓
+按 30 天为一批次，往前回溯
+   ├── userFillsByTime（按时间范围获取）
+   ├── INSERT IGNORE 保存（按 tid 去重）
+   └── 每批延迟 1 秒（避免 API 限流）
+   ↓
+输出最终数据范围（最早/最新/总条数）
+```
+
+---
+
+## 3. fetch_all_position_snapshots.py（批量持仓快照）⭐
 
 ### 功能说明
 
@@ -178,7 +227,7 @@ python scripts/fetch_all_position_snapshots.py
 
 ---
 
-## 3. 定时任务配置（服务器部署）
+## 4. 定时任务配置（服务器部署）
 
 > ⚠️ 详见 [CRON_JOBS.md](./CRON_JOBS.md)，以下为快速参考。
 
@@ -215,7 +264,7 @@ CRON_TZ=Asia/Shanghai
 
 ---
 
-## 4. 常见问题排查
+## 5. 常见问题排查
 
 ### ModuleNotFoundError: No module named 'hyperliquid'
 ```bash
@@ -258,4 +307,4 @@ crontab -l
 
 ---
 
-**最后更新**: 2026-04-08
+**最后更新**: 2026-04-09
