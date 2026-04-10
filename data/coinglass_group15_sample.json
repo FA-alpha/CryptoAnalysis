@@ -1,0 +1,42 @@
+{
+  "meta": {
+    "source": "CoinGlass",
+    "groupId": 15,
+    "total": 5556,
+    "fetched": 100,
+    "fetch_time": "2026-04-09",
+    "fields": {
+      "address": "钱包地址",
+      "biasRemark": "多空偏向: very_bullish/bullish/slightly_bullish/indecisive/slightly_bearish/bearish/very_bearish",
+      "biasScore": "偏向分数（正=多头偏向，负=空头偏向）",
+      "closestLiqCoin": "最近爆仓风险的币种",
+      "closestLiqPercent": "距爆仓价格的距离百分比",
+      "margin": "保证金（USDC）",
+      "positionUsd": "持仓名义价值（USDC）",
+      "remark": "资产规模分组等级（4=最小, 8=最大）",
+      "sumUpnl": "未实现盈亏（USDC，负=亏损）"
+    }
+  },
+  "list": [
+    {"address":"0xdbcc96bcada067864902aad14e029fe7c422f147","biasRemark":"very_bullish","biasScore":1.24,"closestLiqCoin":"ETH","closestLiqPercent":10,"margin":8353830.274685,"positionUsd":34468331.680376,"remark":"8","sumUpnl":-1214471.561071},
+    {"address":"0x32008fcb6bbd16532afc83ca8b6c920dde22c407","biasRemark":"very_bearish","biasScore":-6.81,"closestLiqCoin":"ETH","closestLiqPercent":1,"margin":4037440.761413,"positionUsd":27481720.03291,"remark":"7","sumUpnl":19625.536167},
+    {"address":"0x004edcd40360e293e4cf260d2ebdf8c7076c1bb8","biasRemark":"very_bearish","biasScore":-19.72,"closestLiqCoin":"ETH","closestLiqPercent":0,"margin":1107776.365935,"positionUsd":21846000,"remark":"7","sumUpnl":148685.18603},
+    {"address":"0x6666885961fec8ed58ddb45637ea41c02d6423f5","biasRemark":"very_bullish","biasScore":7.3,"closestLiqCoin":"HYPE","closestLiqPercent":9,"margin":2383057.92393,"positionUsd":17402400,"remark":"7","sumUpnl":-288674.011702},
+    {"address":"0x999da2f91628addf7a5df3194084eddd694066f2","biasRemark":"very_bearish","biasScore":-6.72,"closestLiqCoin":"BTC","closestLiqPercent":22,"margin":2564994.417517,"positionUsd":17233309.98776,"remark":"7","sumUpnl":-838586.845811},
+    {"address":"0xa98143608a6846453c88f29506d64a8b85532e65","biasRemark":"very_bearish","biasScore":-11.37,"closestLiqCoin":"LIT","closestLiqPercent":4,"margin":1503280.513557,"positionUsd":17086440.381002,"remark":"7","sumUpnl":-736653.920569},
+    {"address":"0xeee0d806e4f0a427277433d6b580619918770b53","biasRemark":"very_bullish","biasScore":2.86,"closestLiqCoin":"LIT","closestLiqPercent":50,"margin":2410044.021759,"positionUsd":14104787.749815,"remark":"7","sumUpnl":-199770.088669},
+    {"address":"0xc179e03922afe8fa9533d3f896338b9fb87ce0c8","biasRemark":"very_bullish","biasScore":2.06,"closestLiqCoin":"XMR","closestLiqPercent":7,"margin":5193526.653083,"positionUsd":10699581.542276999,"remark":"8","sumUpnl":-390519.368631},
+    {"address":"0x08bf75d17046412ae08c95b6106993f714487872","biasRemark":"very_bearish","biasScore":-5.07,"closestLiqCoin":"ETH","closestLiqPercent":37,"margin":1908881.231094,"positionUsd":9687393.0062,"remark":"7","sumUpnl":-967556.817527},
+    {"address":"0x654016a8c9fcf0c4cb7ed6078aba21f7f399f7b7","biasRemark":"very_bullish","biasScore":3.02,"closestLiqCoin":"HYPE","closestLiqPercent":35,"margin":1860568.233547,"positionUsd":8982959.274765,"remark":"7","sumUpnl":12470.716143},
+    {"address":"0x1a2dfa6e618fea54aaaed6915312dd379b7e7bd1","biasRemark":"very_bearish","biasScore":-2.88,"closestLiqCoin":"HYPE","closestLiqPercent":0,"margin":3079664.374043,"positionUsd":8859583.88,"remark":"7","sumUpnl":41902.95064},
+    {"address":"0x33862ecda19e5bf28ac0ebbb17a705df388bf8ea","biasRemark":"very_bullish","biasScore":28.33,"closestLiqCoin":"ETH","closestLiqPercent":11,"margin":312613.961791,"positionUsd":8857869.17254,"remark":"5","sumUpnl":-16948.224995},
+    {"address":"0xd87617659957f4d9cea85e9db85b2f1de677646a","biasRemark":"very_bearish","biasScore":-1.69,"closestLiqCoin":"HYPE","closestLiqPercent":11,"margin":1968433.042926,"positionUsd":7915224.887,"remark":"7","sumUpnl":-235817.632183},
+    {"address":"0xfbe28a0bb38e52338dd5f1188cd22cebcdc3c8ea","biasRemark":"very_bearish","biasScore":-3.7,"closestLiqCoin":"ASTER","closestLiqPercent":44,"margin":742604.560381,"positionUsd":7557818.157235,"remark":"6","sumUpnl":-467251.047031},
+    {"address":"0xc5f033a47dde827133850ced50009c3802c989ba","biasRemark":"very_bearish","biasScore":-7.4,"closestLiqCoin":"BTC","closestLiqPercent":13,"margin":893337.849483,"positionUsd":6611096.28395,"remark":"6","sumUpnl":-263097.2836},
+    {"address":"0x0c1fd4fed8679488afb3b23b2b872971e0001d39","biasRemark":"very_bearish","biasScore":-3.2,"closestLiqCoin":"MON","closestLiqPercent":7,"margin":1962529.670765,"positionUsd":6582253.51107,"remark":"7","sumUpnl":-15017.740078},
+    {"address":"0xe5bf771560b8a18505928294796c4b43d14bd432","biasRemark":"very_bearish","biasScore":-8.28,"closestLiqCoin":"SOL","closestLiqPercent":0,"margin":785463.168373,"positionUsd":6503878.44561,"remark":"6","sumUpnl":156454.51863},
+    {"address":"0x039cc0690200bfba3bacc6a9bcc5f865ed970ebd","biasRemark":"very_bearish","biasScore":-2.93,"closestLiqCoin":"ZEC","closestLiqPercent":7,"margin":2090556.713183,"positionUsd":6403052.101358,"remark":"7","sumUpnl":-134942.597901},
+    {"address":"0xa2a7c751da5c4add00d1c8cb9a0110fb2c233f51","biasRemark":"very_bearish","biasScore":-3.15,"closestLiqCoin":"XPL","closestLiqPercent":2,"margin":1894248.75393,"positionUsd":6250020.099723,"remark":"7","sumUpnl":176789.628265},
+    {"address":"0xac487c027ffe32021bbba77e30786f8c8f353201","biasRemark":"very_bearish","biasScore":-3.75,"closestLiqCoin":"LIT","closestLiqPercent":32,"margin":1475481.116573,"positionUsd":6231795,"remark":"7","sumUpnl":-618061.460028}
+  ]
+}

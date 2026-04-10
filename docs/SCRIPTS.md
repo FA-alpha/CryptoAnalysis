@@ -4,6 +4,8 @@
 
 ```
 scripts/
+├── fetch_coinglass_addresses.py         # 从 CoinGlass 抓取 Hyperliquid 地址写入 DB（Playwright）⭐ 地址来源
+├── import_coinglass_from_json.py        # 从本地 JSON 批量导入 CoinGlass 地址（离线导入）
 ├── fetch_address_fills_incremental.py   # 统一版 fills 采集（全量/增量自动判断）⭐ 日常使用
 ├── fetch_address_fills_backfill.py      # 历史 fills 补采（仅在需要补 90 天历史时手动执行一次）
 ├── fetch_all_position_snapshots.py      # 批量获取持仓快照（含 PnL）⭐
@@ -14,7 +16,136 @@ scripts/
 
 ---
 
-## 1. fetch_address_fills_incremental.py（统一版 fills 采集）⭐ 日常使用
+## 1. fetch_coinglass_addresses.py（CoinGlass 地址采集）⭐ 地址来源
+
+### 功能说明
+
+通过 **Playwright** 启动无头浏览器，访问 CoinGlass 的 Hyperliquid 地址排行页，注入 JS 调用页面内部 `bSK` 函数（自动解密）批量获取地址列表，并写入 `hl_address_list` 表。
+
+> 原理：CoinGlass 页面使用了加密 API，直接 HTTP 调用无法绕过。通过 Playwright 加载真实页面后，调用页面已解密的内部模块（`window.__req('94126').bSK`）拿到明文数据。
+
+### 依赖
+
+```bash
+pip install playwright
+playwright install chromium
+```
+
+### 使用方式
+
+```bash
+# 默认：groupId=15，获取 5 页（100 个地址）
+python scripts/fetch_coinglass_addresses.py
+
+# 指定 groupId
+python scripts/fetch_coinglass_addresses.py --group 15
+
+# 指定页数（每页 20 条，10 页 = 200 个地址）
+python scripts/fetch_coinglass_addresses.py --pages 10
+
+# 同时指定 groupId 和页数
+python scripts/fetch_coinglass_addresses.py --group 15 --pages 10
+```
+
+### 参数说明
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--group` | 15 | CoinGlass groupId（对应特定资产规模区间） |
+| `--pages` | 5 | 获取页数，每页 20 条（5 页 = 100 个地址） |
+
+### 执行流程
+
+```
+启动 Chromium（headless）
+   ↓
+访问 https://www.coinglass.com/zh/hl/range/{group_id}（等待 networkidle）
+   ↓
+注入 JS：并发调用 window.__req('94126').bSK() 获取多页数据
+   ↓
+解析 JSON 结果（address / margin / biasRemark 等字段）
+   ↓
+逐条检查 hl_address_list 是否已存在（按 address 去重）
+   ↓
+INSERT 新地址（source = 'coinglass_g{group_id}'）
+   ↓
+输出统计：新增 N 个 / 跳过 N 个
+```
+
+### 输出示例
+
+```
+2026-04-09 10:00:00 | INFO | 启动浏览器，访问: https://www.coinglass.com/zh/hl/range/15
+2026-04-09 10:00:08 | INFO | 页面加载完成
+2026-04-09 10:00:09 | INFO | 成功获取 100 个地址（总计: 3248）
+
+=== 地址预览（前 5 个）===
+  0xf7d48932f456e98d2ff824e38830e8f59de13f4a | margin: $20,019 | bias: 多
+  0x697e38f69d0b7f253e50267c355177830bad6387 | margin: $15,432 | bias: 空
+  ...
+
+保存完成：新增 97 个，跳过 3 个（已存在）
+
+============================================================
+完成！新增: 97 | 跳过: 3
+============================================================
+```
+
+### 写入字段说明
+
+| 字段 | 值 | 说明 |
+|------|----|------|
+| `address` | 小写地址 | 统一转小写 |
+| `label` | NULL | 暂不设置 |
+| `source` | `coinglass_g{group_id}` | 来源标识 |
+| `status` | `active` | 默认激活 |
+| `first_seen_at` | 当前时间 | 首次发现时间 |
+| `last_updated_at` | 当前时间 | 最后更新时间 |
+
+### 地址过滤规则
+
+只写入 `remark` 为以下值的地址，其余跳过：
+
+| remark | label | 说明 |
+|--------|-------|------|
+| `14` | 割肉侠 | 频繁止损割肉 |
+| `15` | 扛单狂人 | 长期持有亏损仓位 |
+| `16` | 爆仓达人 | 历史多次爆仓 |
+
+同时会将原始数据（所有 remark）保存为本地 JSON 文件（`data/coinglass_g{group_id}_{timestamp}.json`），方便离线分析。
+
+### 注意事项
+
+- ⚠️ 依赖 Playwright JSON.parse hook 拦截解密后的明文，CoinGlass 前端重构后可能失效，需重新验证
+- 此脚本为**手动运行**，不建议放入 cron（页面结构可能随时变化）
+- 建议定期（每周/每月）手动执行一次以补充新地址
+- 如网络原因导致脚本中断，可用 `import_coinglass_from_json.py` 从已保存的 JSON 重新导入
+
+---
+
+## 2. import_coinglass_from_json.py（离线导入 CoinGlass 地址）
+
+### 功能说明
+
+当 `fetch_coinglass_addresses.py` 已保存了本地 JSON 但数据库写入中断时，用此脚本从 JSON 文件直接导入，无需重新抓取页面。
+
+### 使用方式
+
+```bash
+python scripts/import_coinglass_from_json.py data/coinglass_g3_20260410_113305.json
+```
+
+### 过滤规则
+
+与 `fetch_coinglass_addresses.py` 一致，只导入 remark 14/15/16，`source` 固定为 `coinglass`。
+
+### 写入性能
+
+使用单条 SQL 多 VALUES 批量插入（每批 500 条），1200+ 条地址约 10 秒完成。
+
+---
+
+## 3. fetch_address_fills_incremental.py（统一版 fills 采集）⭐ 日常使用
 
 ### 功能说明
 
@@ -90,7 +221,7 @@ Hyperliquid 地址交易数据获取（批量模式）
 
 ---
 
-## 2. fetch_address_fills_backfill.py（历史数据补采）
+## 4. fetch_address_fills_backfill.py（历史数据补采）
 
 ### 功能说明
 
@@ -139,7 +270,7 @@ python scripts/fetch_address_fills_backfill.py 0x020ca66c30bec2c4fe3861a94e4db4a
 
 ---
 
-## 3. fetch_all_position_snapshots.py（批量持仓快照）⭐
+## 5. fetch_all_position_snapshots.py（批量持仓快照）⭐
 
 ### 功能说明
 
@@ -227,7 +358,7 @@ python scripts/fetch_all_position_snapshots.py
 
 ---
 
-## 4. 定时任务配置（服务器部署）
+## 6. 定时任务配置（服务器部署）
 
 > ⚠️ 详见 [CRON_JOBS.md](./CRON_JOBS.md)，以下为快速参考。
 
@@ -264,7 +395,7 @@ CRON_TZ=Asia/Shanghai
 
 ---
 
-## 5. 常见问题排查
+## 7. 常见问题排查
 
 ### ModuleNotFoundError: No module named 'hyperliquid'
 ```bash
@@ -307,4 +438,4 @@ crontab -l
 
 ---
 
-**最后更新**: 2026-04-09
+**最后更新**: 2026-04-10（新增 import_coinglass_from_json.py；更新 fetch_coinglass_addresses.py 技术方案和过滤规则说明）

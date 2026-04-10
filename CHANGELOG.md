@@ -1,5 +1,32 @@
 # 更新日志
 
+## [0.1.2] - 2026-04-10
+
+### 新增功能
+- ✅ `import_coinglass_from_json.py` - 从本地 JSON 文件批量导入 CoinGlass 地址到 `hl_address_list`（单条 SQL 多 VALUES 批量写入）
+
+### 功能优化
+- ✅ `fetch_coinglass_addresses.py` - 改用 JSON.parse hook 拦截页面解密后明文，替代原 `window.__req` 方案
+- ✅ `fetch_coinglass_addresses.py` - 新增保存原始数据到本地 JSON 文件（`data/` 目录）
+- ✅ `fetch_coinglass_addresses.py` - 只写入 remark 14/15/16 地址，label 写入对应中文说明（割肉侠/扛单狂人/爆仓达人）
+- ✅ 数据库写入改为批量查重 + 单条 SQL 多 VALUES，避免逐条插入性能问题
+
+### 数据现状（2026-04-10）
+- `hl_address_list`：1224 个地址（割肉侠 955 / 扛单狂人 232 / 爆仓达人 36 / 其他 1）
+- `hl_fills`：1,229,609 条交易记录
+
+---
+
+## [0.1.1] - 2026-04-09
+
+### 新增功能
+- ✅ `fetch_coinglass_addresses.py` - 通过 Playwright 从 CoinGlass 批量抓取 Hyperliquid 地址写入 `hl_address_list`
+
+### 文档更新
+- ✅ `SCRIPTS.md` - 补充 `fetch_coinglass_addresses.py` 使用说明（2026-04-10 补录）
+
+---
+
 ## [0.1.0] - 2026-04-07
 
 ### 新增功能

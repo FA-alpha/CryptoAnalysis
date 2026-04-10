@@ -4,6 +4,7 @@
 """
 import sys
 import os
+import time
 from typing import List, Dict, Optional
 from decimal import Decimal
 from datetime import datetime, date, timedelta
@@ -35,7 +36,7 @@ def get_active_addresses() -> List[tuple]:
             SELECT address, label 
             FROM hl_address_list 
             WHERE status = 'active'
-            ORDER BY last_updated_at DESC
+            ORDER BY id ASC
         ''')
         
         addresses = cursor.fetchall()
@@ -284,6 +285,7 @@ def main():
         
         # 获取持仓状态
         state = fetch_clearinghouse_state(address)
+        # 无需额外 sleep，API 请求本身已有 ~1s 延迟，不会触发限流
         
         if not state:
             print(f"   ⚠️ 无持仓数据或获取失败")
