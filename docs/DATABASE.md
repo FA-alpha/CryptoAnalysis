@@ -17,6 +17,7 @@
 | [hl_address_list](#hl-address-list) | 地址列表 | ✅ 使用中 |
 | [hl_backtest_results](#hl-backtest-results) | 回测结果 | ✅ 使用中 |
 | [hl_fills](#hl-fills) | 交易历史（原始成交数据） | ✅ 使用中 |
+| [hl_ledger_updates](#hl-ledger-updates) | 非资金费账本流水（充值/提现/转账/vault） | ✅ 使用中 |
 | [hl_follow_trades](#hl-follow-trades) | 跟单交易记录 | ✅ 使用中 |
 | [hl_fragile_pool](#hl-fragile-pool) | 脆弱地址池（实时监控） | ✅ 使用中 |
 | [hl_fragile_scores](#hl-fragile-scores) | 脆弱地址评分 | ✅ 使用中 |
@@ -306,6 +307,55 @@ CREATE TABLE `hl_fills` (
 | idx_time | time | 普通 | - |
 | idx_oid | oid | 普通 | - |
 | idx_hash | hash | 普通 | - |
+
+---
+
+## 4.1 hl_ledger_updates
+
+### **表说明**
+非资金费账本流水（`userNonFundingLedgerUpdates`）。用于沉淀地址资金流事件：外部充提、内部转账、账户划转、vault 申购/赎回/分润、借贷与费用等。
+
+### **字段说明（核心）**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `address` | varchar(66) | 被采集地址 |
+| `time` | bigint | 事件时间戳(ms) |
+| `hash` | varchar(100) | 事件哈希 |
+| `type` | varchar(50) | 事件类型（见下方 type 字典） |
+| `usdc_amount` | decimal(20,6) | 统一 USDC 金额口径（按 type 映射） |
+| `sender_address` | varchar(66) | 发送地址（如 `send`） |
+| `destination_address` | varchar(66) | 接收地址（如 `send`） |
+| `source_dex` | varchar(20) | 资金来源账户类型（spot/perp） |
+| `destination_dex` | varchar(20) | 资金去向账户类型（spot/perp） |
+| `token` | varchar(20) | 资产符号 |
+| `amount` | decimal(20,6) | 原始 token 数量 |
+| `usdc_value` | decimal(20,6) | 原始 USDC 估值 |
+| `vault_address` | varchar(66) | vault 地址（vault 系事件） |
+| `requested_usd` | decimal(20,6) | 请求赎回金额（vaultWithdraw） |
+| `net_withdrawn_usd` | decimal(20,6) | 实际净到账金额（vaultWithdraw） |
+| `commission` | decimal(20,6) | 佣金金额（vaultLeaderCommission） |
+| `operation` | varchar(50) | vault 操作语义字段 |
+
+### **type 字典（分析口径）**
+
+| `type` | 分类 | 资金方向（相对 address） | 备注 |
+|------|------|------|------|
+| `deposit` | 外部充提 | 流入 | 外部 -> Hyper |
+| `withdraw` | 外部充提 | 流出 | Hyper -> 外部 |
+| `send` | 内部转账 | 视 sender/destination 判定 | 不计外部净流 |
+| `accountClassTransfer` | 内部划转 | 同地址内部重分配 | `spot <-> perp` |
+| `spotTransfer` | 内部划转 | 视对手方判定 | 不计外部净流 |
+| `vaultCreate` | vault 结构事件 | 视字段判定 | 可伴随初始投入 |
+| `vaultDeposit` | vault 申购 | 流出 | 地址 -> vault |
+| `vaultWithdraw` | vault 赎回 | 流入 | vault -> 地址 |
+| `vaultDistribution` | vault 分润 | 流入 | 收益分配 |
+| `vaultLeaderCommission` | vault 佣金 | 常见为 leader 流入 | 费用/分润类 |
+| `borrowLend` | 借贷 | 视 token/事件语义 | 内部资金事件 |
+| `cStakingTransfer` | staking 划转 | 视 token/事件语义 | 内部资金事件 |
+| `accountActivationGas` | 费用 | 流出 | 账户激活 gas |
+
+> 建议维护三套指标：`external_net_flow`（仅 deposit/withdraw）、`internal_flow`（send/transfer/vault）、`vault_pnl_flow`（vaultWithdraw + vaultDistribution - vaultDeposit - vaultLeaderCommission）。
 
 ---
 

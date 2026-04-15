@@ -1,7 +1,8 @@
 # Hyperbot Hyperliquid API 整理（A 方案）
 
 - 来源：`docs/hyperbot/Hyperliquid API - Hyperbot 开放API_20260410.html`
-- 接口总数：`77`
+- 接口总数：`78`
+- 已补齐遗漏：`POST /api/upgrade/v2/hl/traders/discover`（来源：线上文档与本地 HTML 均可检索）
 - 阅读方式：每个接口一个小节（路径、参数、返回字段）
 
 ## WebSocket（5）
@@ -36,7 +37,7 @@
   - `dex` (string)：可选，指定 dex，默认为主 dex（空串）。一个连接支持一个 dex，多个 dex 使用多个连接（ ?dex=xyz ）
 - 返回字段示例：`type`、`address`
 
-## HTTP 接口（非 info）（51）
+## HTTP 接口（非 info）（52）
 
 ### 1. `GET /api/upgrade/v2/hl/tickers`
 - 接口名：获取所有 Ticker 数据
@@ -420,6 +421,22 @@
   - `data[].address` (string)：地址
   - `data[].spotState` (object)：现货账户状态
 - 返回字段示例：`code`、`msg`、`data`、`address`、`spotState`、`balances`、`coin`、`token`、`total`、`hold`
+
+### 31B. `POST /api/upgrade/v2/hl/traders/discover` 🆕（补齐遗漏）
+- 接口名：地址发现
+- 参数：
+  - `pageNum` (integer)：页码，默认 1，最大 20
+  - `pageSize` (integer)：每页条数，默认 20，最大 25
+  - `period` (integer)：周期天数，默认 7，`0` 表示 all-time
+  - `sort` (object)：排序配置（`sort.field` + `sort.dir`，默认 `desc`）
+  - `filters` (array)：筛选数组；每项常见字段：`field`、`op`、`val`、`val2`、`period`
+  - `addrs` (string[])：指定地址列表，最多 50（超出静默截断）
+  - `tags` / `coins` / `anyCoins` / `noCoins` / `allCoins` (string[])：标签与币种筛选
+  - `selects` (string[])：返回字段白名单
+  - `loadPnls` / `loadTags` / `countOnly` (boolean)：是否加载曲线/标签/仅数量
+  - `lang` (string)：语言，默认 `en`
+  - `AccessKeyId` / `SignatureNonce` / `Timestamp` / `Signature`：标准鉴权参数
+- 返回字段示例：`code`、`msg`、`data`、`list`、`total`、`address`、`winRate`、`totalPnl`、`avgLeverage`、`snapTotalValue`
 
 ### 32. `GET /api/upgrade/v2/hl/whales/latest-events`
 - 接口名：获取鲸鱼仓位事件

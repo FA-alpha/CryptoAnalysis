@@ -7,7 +7,9 @@ import os
 import time
 from typing import List, Dict, Optional
 from decimal import Decimal
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
+
+CST = timezone(timedelta(hours=8))  # 北京时间
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -131,7 +133,7 @@ def resolve_snapshot_date(now: Optional[datetime] = None) -> date:
         snapshot_date
     """
     if now is None:
-        now = datetime.now()
+        now = datetime.now(CST).replace(tzinfo=None)  # 北京时间
 
     if now.hour == SCHEDULED_HOUR:
         return (now - timedelta(days=1)).date()

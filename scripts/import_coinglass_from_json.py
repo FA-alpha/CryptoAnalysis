@@ -9,7 +9,9 @@ import sys
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+CST = timezone(timedelta(hours=8))  # 北京时间
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.db_utils import get_connection
@@ -53,7 +55,7 @@ def main():
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        now = datetime.now()
+        now = datetime.now(CST).replace(tzinfo=None)  # 北京时间
 
         # 批量查重
         all_addrs = [a for a, _ in candidates]

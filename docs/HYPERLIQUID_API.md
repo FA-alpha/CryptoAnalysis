@@ -475,6 +475,81 @@ account_value = total_raw_usd + unrealized_pnl
 }
 ```
 
+### **6.4 非资金费账本流水 (userNonFundingLedgerUpdates)**
+
+用于获取地址的非资金费账本变动（充值、提现、地址间转账、账户类别划转等）。
+
+```json
+{
+  "type": "userNonFundingLedgerUpdates",
+  "user": "0x020ca66c30bec2c4fe3861a94e4db4a498a35872",
+  "startTime": 1775600000000,
+  "endTime": 1776200000000
+}
+```
+
+#### 关键字段语义（重点）
+
+- `delta.type`
+  - `deposit`：外部 -> Hyper 账户（外部充值）
+  - `withdraw`：Hyper 账户 -> 外部（外部提现）
+  - `send`：Hyper 内部地址间转账（不是外部充提）
+  - `accountClassTransfer`：同地址内 `spot <-> perp` 划转
+  - `spotTransfer`：地址间/账户间现货资产划转（内部资金流）
+  - `vaultCreate`：创建 vault（结构性事件，可伴随初始投入）
+  - `vaultDeposit`：地址 -> vault 申购/存入（内部流出）
+  - `vaultWithdraw`：vault -> 地址 赎回/取回（内部流入）
+  - `vaultDistribution`：vault 向地址分配收益（内部流入）
+  - `vaultLeaderCommission`：vault leader 佣金（费用/分润类事件）
+  - `borrowLend`：借贷相关资金变动（内部资金事件）
+  - `cStakingTransfer`：cStaking 相关划转（内部资金事件）
+  - `accountActivationGas`：账户激活 gas 扣费（费用事件）
+- `sourceDex`
+  - 资金从哪个账户类型扣出（如 `spot` / `perp`）
+- `destinationDex`
+  - 资金转入哪个账户类型（可能为空字符串，表示未显式标注）
+
+#### Vault 相关字段（重点）
+
+- `delta.vault`：vault 地址/标识
+- `delta.operation`：vault 操作语义（不同事件会有不同取值）
+- `delta.requestedUsd`：请求赎回金额（常见于 `vaultWithdraw`）
+- `delta.netWithdrawnUsd`：实际净到账金额（常见于 `vaultWithdraw`）
+- `delta.commission`：佣金金额（常见于 `vaultLeaderCommission`）
+- `delta.closingCost` / `delta.basis`：结算成本/基准相关字段（按事件出现）
+
+> 实务建议：`vaultWithdraw` 优先使用 `netWithdrawnUsd` 作为实际到账金额，`requestedUsd` 作为请求值留存用于对账。
+
+#### 入金/出金判定口径（建议）
+
+1. 外部净流（推荐做主口径）
+   - 入金：`type = 'deposit'`
+   - 出金：`type = 'withdraw'`
+2. 全口径净流（包含内部转账）
+   - 外部入/出：同上
+   - 内部转入：`type = 'send' AND destination == 被监控地址`
+   - 内部转出：`type = 'send' AND user == 被监控地址`
+
+> 建议同时维护两套指标：`external_net_flow`（仅 deposit/withdraw）和 `total_net_flow`（包含 send in/out），避免把平台内部转账与外部真实充提混淆。
+
+#### 数据库 type 分析字典（hl_ledger_updates）
+
+| `type` | 归类 | 对地址资金方向 | 是否计入外部净流 |
+|---|---|---|---|
+| `deposit` | 外部充提 | 流入 | 是 |
+| `withdraw` | 外部充提 | 流出 | 是 |
+| `send` | 内部转账 | 取决于 sender/destination | 否 |
+| `accountClassTransfer` | 内部划转 | 同地址内部重分配 | 否 |
+| `spotTransfer` | 内部划转 | 取决于对手方 | 否 |
+| `vaultCreate` | vault 结构事件 | 通常视字段判断 | 否 |
+| `vaultDeposit` | vault 申购 | 流出 | 否 |
+| `vaultWithdraw` | vault 赎回 | 流入 | 否 |
+| `vaultDistribution` | vault 分润 | 流入 | 否 |
+| `vaultLeaderCommission` | vault 佣金 | leader 通常流入 | 否 |
+| `borrowLend` | 借贷 | 视语义和 token 而定 | 否 |
+| `cStakingTransfer` | staking 划转 | 视语义和 token 而定 | 否 |
+| `accountActivationGas` | 费用 | 流出 | 否 |
+
 ---
 
 ## 📊 数据库存储建议
@@ -590,6 +665,212 @@ db.executemany(
 5. **全仓 vs 逐仓**
    - crossed = true：全仓（风险高，利用率高）
    - crossed = false：逐仓（风险隔离）
+
+6. **账本流水里的 send 不等于外部充值/提现**
+   - `send` 是 Hyper 内部地址间转账
+   - 外部资金进出以 `deposit/withdraw` 为准
+   - 资金分析建议区分外部口径与全口径
+
+---
+
+## 📈 账本净流 SQL 示例（按天）
+
+> 说明：以下 SQL 基于 `hl_ledger_updates`（对应 `scripts/fetch_ledger_updates.py` 的入库表）示例。  
+> 如果你的表名不同，请替换为实际表名。
+
+```sql
+-- 按天统计：外部入金、外部出金、内部转入、内部转出、外部净流、全口径净流
+SELECT
+    lu.address,
+    DATE(FROM_UNIXTIME(lu.time / 1000)) AS stat_date,
+
+    -- 外部口径（当前表结构：usdc_amount）
+    SUM(CASE WHEN lu.type = 'deposit' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS external_in_usdc,
+    SUM(CASE WHEN lu.type IN ('withdraw', 'withdrawal') THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS external_out_usdc,
+
+    -- 内部转账口径（send）
+    SUM(
+        CASE
+            WHEN lu.type = 'send' AND LOWER(lu.destination_address) = LOWER(lu.address)
+                THEN COALESCE(lu.usdc_value, 0)
+            ELSE 0
+        END
+    ) AS internal_in_usdc,
+    SUM(
+        CASE
+            WHEN lu.type = 'send' AND LOWER(lu.sender_address) = LOWER(lu.address)
+                THEN COALESCE(lu.usdc_value, 0)
+            ELSE 0
+        END
+    ) AS internal_out_usdc,
+
+    -- 外部净流（推荐主口径）
+    SUM(CASE WHEN lu.type = 'deposit' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END)
+    - SUM(CASE WHEN lu.type IN ('withdraw', 'withdrawal') THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS external_net_flow_usdc,
+
+    -- 全口径净流（外部 + 内部）
+    (
+        SUM(CASE WHEN lu.type = 'deposit' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END)
+        + SUM(CASE WHEN lu.type = 'send' AND LOWER(lu.destination_address) = LOWER(lu.address) THEN COALESCE(lu.usdc_value, 0) ELSE 0 END)
+    ) - (
+        SUM(CASE WHEN lu.type IN ('withdraw', 'withdrawal') THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END)
+        + SUM(CASE WHEN lu.type = 'send' AND LOWER(lu.sender_address) = LOWER(lu.address) THEN COALESCE(lu.usdc_value, 0) ELSE 0 END)
+    ) AS total_net_flow_usdc
+FROM hl_ledger_updates lu
+GROUP BY lu.address, DATE(FROM_UNIXTIME(lu.time / 1000))
+ORDER BY stat_date DESC, lu.address;
+```
+
+### Vault 资金流 SQL 示例（按天）
+
+> 说明：用于拆分 vault 申购/赎回/分润/佣金四类事件，避免与外部充提混淆。  
+> 口径基于 `hl_ledger_updates.type + usdc_amount`，其中 `vaultWithdraw` 建议优先入库净到账金额（`net_withdrawn_usd`）。
+
+```sql
+-- 按天统计 vault 四项 + 净额
+SELECT
+    lu.address,
+    DATE(FROM_UNIXTIME(lu.time / 1000)) AS stat_date,
+
+    -- 地址 -> vault（申购/存入）
+    SUM(
+        CASE
+            WHEN lu.type = 'vaultDeposit' THEN COALESCE(lu.usdc_amount, 0)
+            ELSE 0
+        END
+    ) AS vault_deposit_usdc,
+
+    -- vault -> 地址（赎回/取回）
+    SUM(
+        CASE
+            WHEN lu.type = 'vaultWithdraw' THEN COALESCE(lu.usdc_amount, 0)
+            ELSE 0
+        END
+    ) AS vault_withdraw_usdc,
+
+    -- vault 分润（收益分配）
+    SUM(
+        CASE
+            WHEN lu.type = 'vaultDistribution' THEN COALESCE(lu.usdc_amount, 0)
+            ELSE 0
+        END
+    ) AS vault_distribution_usdc,
+
+    -- leader 佣金（费用/分润类）
+    SUM(
+        CASE
+            WHEN lu.type = 'vaultLeaderCommission' THEN COALESCE(lu.usdc_amount, 0)
+            ELSE 0
+        END
+    ) AS vault_leader_commission_usdc,
+
+    -- vault 净流（地址视角）
+    -- 正值：地址从 vault 体系净流入；负值：地址净投入 vault
+    (
+        SUM(CASE WHEN lu.type IN ('vaultWithdraw', 'vaultDistribution') THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END)
+        - SUM(CASE WHEN lu.type IN ('vaultDeposit', 'vaultLeaderCommission') THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END)
+    ) AS vault_net_flow_usdc
+FROM hl_ledger_updates lu
+GROUP BY lu.address, DATE(FROM_UNIXTIME(lu.time / 1000))
+ORDER BY stat_date DESC, lu.address;
+```
+
+```sql
+-- 可选：按 vault 维度统计（需要表中有 vault_address 列）
+SELECT
+    lu.address,
+    lu.vault_address,
+    DATE(FROM_UNIXTIME(lu.time / 1000)) AS stat_date,
+    SUM(CASE WHEN lu.type = 'vaultDeposit' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS vault_deposit_usdc,
+    SUM(CASE WHEN lu.type = 'vaultWithdraw' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS vault_withdraw_usdc,
+    SUM(CASE WHEN lu.type = 'vaultDistribution' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS vault_distribution_usdc,
+    SUM(CASE WHEN lu.type = 'vaultLeaderCommission' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS vault_leader_commission_usdc
+FROM hl_ledger_updates lu
+WHERE lu.vault_address IS NOT NULL
+GROUP BY lu.address, lu.vault_address, DATE(FROM_UNIXTIME(lu.time / 1000))
+ORDER BY stat_date DESC, lu.address, lu.vault_address;
+```
+
+### 三口径合并报表 SQL（按天）
+
+> 说明：一张报表同时输出 `external_net_flow`、`vault_net_flow`、`total_net_flow`，便于策略层直接消费。  
+> 口径约定：  
+> - `external_net_flow` = `deposit - withdraw`  
+> - `vault_net_flow` = (`vaultWithdraw` + `vaultDistribution`) - (`vaultDeposit` + `vaultLeaderCommission`)  
+> - `total_net_flow` = `external_net_flow + internal_net_flow + vault_net_flow`  
+> 其中 `internal_net_flow` 来自 `send`（内部转账净流）。
+
+```sql
+SELECT
+    lu.address,
+    DATE(FROM_UNIXTIME(lu.time / 1000)) AS stat_date,
+
+    -- 外部口径
+    SUM(CASE WHEN lu.type = 'deposit' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS external_in_usdc,
+    SUM(CASE WHEN lu.type IN ('withdraw', 'withdrawal') THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS external_out_usdc,
+    SUM(CASE WHEN lu.type = 'deposit' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END)
+    - SUM(CASE WHEN lu.type IN ('withdraw', 'withdrawal') THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS external_net_flow_usdc,
+
+    -- 内部转账口径（send）
+    SUM(
+        CASE
+            WHEN lu.type = 'send' AND LOWER(lu.destination_address) = LOWER(lu.address)
+                THEN COALESCE(lu.usdc_value, 0)
+            ELSE 0
+        END
+    ) AS internal_in_usdc,
+    SUM(
+        CASE
+            WHEN lu.type = 'send' AND LOWER(lu.sender_address) = LOWER(lu.address)
+                THEN COALESCE(lu.usdc_value, 0)
+            ELSE 0
+        END
+    ) AS internal_out_usdc,
+    SUM(
+        CASE
+            WHEN lu.type = 'send' AND LOWER(lu.destination_address) = LOWER(lu.address)
+                THEN COALESCE(lu.usdc_value, 0)
+            WHEN lu.type = 'send' AND LOWER(lu.sender_address) = LOWER(lu.address)
+                THEN -COALESCE(lu.usdc_value, 0)
+            ELSE 0
+        END
+    ) AS internal_net_flow_usdc,
+
+    -- vault 口径
+    SUM(CASE WHEN lu.type = 'vaultDeposit' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS vault_deposit_usdc,
+    SUM(CASE WHEN lu.type = 'vaultWithdraw' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS vault_withdraw_usdc,
+    SUM(CASE WHEN lu.type = 'vaultDistribution' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS vault_distribution_usdc,
+    SUM(CASE WHEN lu.type = 'vaultLeaderCommission' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END) AS vault_leader_commission_usdc,
+    (
+        SUM(CASE WHEN lu.type IN ('vaultWithdraw', 'vaultDistribution') THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END)
+        - SUM(CASE WHEN lu.type IN ('vaultDeposit', 'vaultLeaderCommission') THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END)
+    ) AS vault_net_flow_usdc,
+
+    -- 全口径净流（外部 + 内部 + vault）
+    (
+        -- external
+        SUM(CASE WHEN lu.type = 'deposit' THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END)
+        - SUM(CASE WHEN lu.type IN ('withdraw', 'withdrawal') THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END)
+        -- internal
+        + SUM(
+            CASE
+                WHEN lu.type = 'send' AND LOWER(lu.destination_address) = LOWER(lu.address)
+                    THEN COALESCE(lu.usdc_value, 0)
+                WHEN lu.type = 'send' AND LOWER(lu.sender_address) = LOWER(lu.address)
+                    THEN -COALESCE(lu.usdc_value, 0)
+                ELSE 0
+            END
+        )
+        -- vault
+        + (
+            SUM(CASE WHEN lu.type IN ('vaultWithdraw', 'vaultDistribution') THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END)
+            - SUM(CASE WHEN lu.type IN ('vaultDeposit', 'vaultLeaderCommission') THEN COALESCE(lu.usdc_amount, 0) ELSE 0 END)
+        )
+    ) AS total_net_flow_usdc
+FROM hl_ledger_updates lu
+GROUP BY lu.address, DATE(FROM_UNIXTIME(lu.time / 1000))
+ORDER BY stat_date DESC, lu.address;
+```
 
 ---
 

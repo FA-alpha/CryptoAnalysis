@@ -1,5 +1,73 @@
 # 更新日志
 
+## [0.2.1] - 2026-04-13 19:00
+
+### 🔧 评分模型 v2.1 优化
+
+#### 数据库变更
+- ✅ `hl_address_features` 新增字段：
+  - `max_consecutive_loss_count` - 最长连续亏损笔数
+
+#### 脚本更新
+- ✅ `calculate_address_features_v2.py` - 连续亏损识别改为**方案D**：
+  - 同 coin + 同方向 + 1小时内的连续 Close，算同一次亏损事件
+  - 中间有盈利 Close，归零计数
+  - 同时统计最长连续亏损笔数
+- ✅ `calculate_fragile_scores_v2.py` - 新增最长连亏评分（5分）
+
+#### 评分体系变更
+- **心态特征**：20分 → **25分**
+  - 连亏后加仓（10分）
+  - 追涨杀跌率（5分）
+  - 最长连亏笔数（5分）🆕
+  - 死扛指数（5分，待实现）
+- **总分范围**：约 -10~120 → **约 -10~125**
+
+#### 文档更新
+- ✅ `docs/SCORING_MODEL_V2.md` - 更新为 v2.1
+- ✅ `CHANGELOG.md` - 新增 v2.1 版本记录
+
+---
+
+## [0.2.0] - 2026-04-13
+
+### 🎯 评分模型 v2（重大更新）
+
+#### 数据库变更
+- ✅ `hl_fills.dir` 字段从 VARCHAR(20) 扩展到 VARCHAR(50)（支持完整清算类型）
+- ✅ `hl_address_features` 新增 5 个字段：
+  - `liquidation_per_month` - 清算次数/月
+  - `has_refill_behavior` - 是否有后续补仓行为
+  - `consecutive_loss_add_count` - 连续亏损后加仓次数
+  - `add_position_score` - 加仓效果得分（可负）
+  - `scalping_score` - 做T行为得分（可负）
+- ✅ `hl_fragile_scores` 新增字段：
+  - `trading_behavior_score` - 加仓/做T行为得分
+  - `total_score` 改为 DECIMAL(10,2)（支持小数和负分）
+
+#### 新脚本
+- ✅ `calculate_address_features_v2.py` - 新特征计算引擎
+  - 杠杆改为账户整体杠杆（快照数据）
+  - 清算识别：官方 + 近似清算（全仓平 + 亏损≥50%）
+  - 连续亏损后加仓识别
+  - 补仓行为识别
+- ✅ `calculate_fragile_scores_v2.py` - 新评分引擎
+  - 总分动态（理论 -10~120 分）
+  - 仓位利用率引入补仓修正
+  - 加仓/做T 双向计分（当前简化版返回 0）
+
+#### 文档更新
+- ✅ `docs/SCORING_MODEL_V2.md` - 完整评分规则文档
+- ✅ 修复时区问题：`hl_address_list.first_seen_at/last_updated_at` 统一为北京时间
+
+#### 评分体系变更
+- **风险行为（35分）**：杠杆(15) + 仓位利用率+补仓修正(10)
+- **亏损特征（30分）**：胜率(15) + 清算/月(10) + 总PnL%(5)
+- **心态特征（20分）**：连亏后加仓(10) + 追涨杀跌(5) + 死扛(5)
+- **加仓/做T（±15分）**：加仓效果(-6~+8) + 做T盈亏(-3~+7)
+
+---
+
 ## [0.1.2] - 2026-04-10
 
 ### 新增功能

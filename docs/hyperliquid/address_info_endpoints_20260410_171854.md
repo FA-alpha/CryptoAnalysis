@@ -167,6 +167,35 @@ true
 ```
 - 返回数值，表示该用户对指定 `builder` 的最大费率授权（十分之一 bp 单位）
 
+### `userNonFundingLedgerUpdates`（官方支持：充值/提现等非资金费流水）
+> 说明：该 type 在本次地址样本中未实测到返回，因此这里补充“官方接口定义 + 请求示例”。
+
+**用途**
+- 查询地址的非资金费（non-funding）账本更新流水，包含充值、提现、转账等事件。
+
+**请求体示例**
+```json
+{
+  "type": "userNonFundingLedgerUpdates",
+  "user": "0x020ca66c30bec2c4fe3861a94e4db4a498a35872",
+  "startTime": 1775600000000,
+  "endTime": 1776200000000
+}
+```
+
+**关键参数**
+- `type`：固定为 `userNonFundingLedgerUpdates`
+- `user`：地址（42 位十六进制）
+- `startTime`：起始时间（毫秒，包含）
+- `endTime`：结束时间（毫秒，可选；不传通常表示到当前）
+
+**返回说明（按事件类型变化）**
+- 返回列表按时间给出账本变更事件。
+- 事件明细通常在 `delta` 内，常见会出现：
+  - `deposit`（充值）
+  - `withdraw` / `withdrawal`（提现）
+  - 以及其它非资金费账本变动类型（如转账等）
+
 ## 本次为空的 type（不展开解释）
 
 `userTwapSliceFills`、`subAccounts`、`userVaultEquities`、`approvedBuilders`、`vaultDetails`

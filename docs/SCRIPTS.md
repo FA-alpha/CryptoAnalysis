@@ -6,6 +6,7 @@
 scripts/
 ├── fetch_coinglass_addresses.py         # 从 CoinGlass 抓取 Hyperliquid 地址写入 DB（Playwright）⭐ 地址来源
 ├── import_coinglass_from_json.py        # 从本地 JSON 批量导入 CoinGlass 地址（离线导入）
+├── fetch_hyperbot_fragile_addresses.py  # 从 HyperBot discover 发现脆弱地址并入库（分片抓取，支持几千条）
 ├── fetch_address_fills_incremental.py   # 统一版 fills 采集（全量/增量自动判断）⭐ 日常使用
 ├── fetch_address_fills_backfill.py      # 历史 fills 补采（仅在需要补 90 天历史时手动执行一次）
 ├── fetch_all_position_snapshots.py      # 批量获取持仓快照（含 PnL）⭐
@@ -142,6 +143,82 @@ python scripts/import_coinglass_from_json.py data/coinglass_g3_20260410_113305.j
 ### 写入性能
 
 使用单条 SQL 多 VALUES 批量插入（每批 500 条），1200+ 条地址约 10 秒完成。
+
+---
+
+## 2.5 fetch_hyperbot_fragile_addresses.py（HyperBot 脆弱地址发现）
+
+### 功能说明
+
+通过 `POST /api/upgrade/v2/hl/traders/discover` 自动筛选“低胜率 + 高杠杆 + 大亏损 + 足够样本”的地址，并写入 `hl_address_list`。
+
+为突破 discover 单次分页上限，脚本采用 **方案1：按 totalPnl 分片 + 每片分页**：
+
+- 先把 `totalPnl` 按亏损区间切成多个分片（如：`(-1e12,-1000000)`、`(-1000000,-500000)` ... `(-20000,-10000)`）
+- 每个分片最多抓 `--pages` 页（默认 20 页，每页 25 条）
+- 合并后按地址去重，再批量入库
+
+### 环境变量（config/.env）
+
+```ini
+HYPERBOT_ACCESS_KEY_ID=YOUR_ACCESS_KEY_ID
+HYPERBOT_ACCESS_KEY_SECRET=YOUR_ACCESS_KEY_SECRET
+HYPERBOT_BASE_URL=https://openapi.hyperbot.network
+```
+
+### 使用方式
+
+```bash
+# 默认抓取（30天周期，分片抓取，每片最多20页）
+python scripts/fetch_hyperbot_fragile_addresses.py
+
+# 先预览，不写入数据库
+python scripts/fetch_hyperbot_fragile_addresses.py --dry-run
+
+# 鉴权自检（先测 tickers，再测 discover）
+python scripts/fetch_hyperbot_fragile_addresses.py --auth-check
+
+# 提高抓取量（每片20页，每页25条；总量可到几千，取决于筛选结果）
+python scripts/fetch_hyperbot_fragile_addresses.py --pages 20 --page-size 25
+
+# 调整筛选阈值
+python scripts/fetch_hyperbot_fragile_addresses.py \
+  --period 30 \
+  --win-rate-lt 40 \
+  --avg-leverage-gt 10 \
+  --total-pnl-lt -10000 \
+  --position-count-gt 20 \
+  --avg-duration-min-lt 60 \
+  --margin-used-gt 0.8
+```
+
+### 关键参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--period` | 30 | 统计周期（天） |
+| `--pages` | 20 | 每个 PnL 分片最大页数 |
+| `--page-size` | 25 | 每页条数（接口上限25） |
+| `--win-rate-lt` | 40 | 胜率阈值：小于该值 |
+| `--avg-leverage-gt` | 10 | 平均杠杆阈值：大于该值 |
+| `--total-pnl-lt` | -10000 | 总盈亏阈值：小于该值（亏损） |
+| `--position-count-gt` | 20 | 开仓次数阈值：大于该值 |
+| `--avg-duration-min-lt` | 无 | 可选：平均持仓分钟数上限 |
+| `--margin-used-gt` | 无 | 可选：保证金占用率下限 |
+| `--source` | hyperbot | 入库来源字段 |
+| `--dry-run` | false | 仅打印，不写库 |
+| `--auth-check` | false | 鉴权诊断：检查全局鉴权与 discover 接口权限 |
+
+### 入库规则
+
+- 表：`hl_address_list`
+- 写入字段：
+  - `address`：小写地址
+  - `source`：默认 `hyperbot`
+  - `label`：自动生成中文条件串（如 `脆弱候选(period=30, winRate<40.0, lev>10.0, pnl<-10000.0, pos>20.0)`）
+  - `status`：`active`
+  - `first_seen_at` / `last_updated_at`：当前北京时间
+- 去重策略：按 `address` 查重，`INSERT IGNORE`
 
 ---
 

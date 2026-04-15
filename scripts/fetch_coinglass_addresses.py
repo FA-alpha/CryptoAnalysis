@@ -12,7 +12,9 @@ import sys
 import os
 import argparse
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+CST = timezone(timedelta(hours=8))  # 北京时间
 from typing import List, Dict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -170,7 +172,7 @@ def save_addresses_to_db(addresses: List[Dict], source: str = "coinglass") -> Di
     skipped = 0
 
     try:
-        now = datetime.now()
+        now = datetime.now(CST).replace(tzinfo=None)  # 北京时间，存为 naive datetime
 
         # 过滤出 remark 14/15/16 的地址
         candidates = []
