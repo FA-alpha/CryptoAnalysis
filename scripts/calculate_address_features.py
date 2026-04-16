@@ -29,7 +29,7 @@ TARGET_COINS = ('BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'ADA', 'HYPE', 'BCH', 'BNB')
 TARGET_COINS_PLACEHOLDER = ','.join(['%s'] * len(TARGET_COINS))
 
 
-def purge_address(address: str) -> None:
+def purge_address(address: str, reason: str = '无主流币种交易数据') -> None:
     """
     删除指定地址的所有相关数据
     触发条件：该地址在主流币种下无平仓数据
@@ -69,7 +69,7 @@ def purge_address(address: str) -> None:
             """UPDATE hl_address_list
                SET status = 'excluded', excluded_reason = %s
                WHERE address = %s""",
-            ('无主流币种交易数据（仅交易非 BTC/ETH/SOL/DOGE/XRP/ADA/HYPE/BCH/BNB 币种）', address)
+            (reason, address)
         )
         print(f"   📝 hl_address_list 状态已改为 excluded")
 
@@ -824,9 +824,18 @@ def main() -> None:
             features = calculate_features(address)
             if not features:
                 print(f"   ⚠️ 无主流币种数据，清除该地址...")
-                purge_address(address)
+                purge_address(address, '无主流币种交易数据（仅交易非 BTC/ETH/SOL/DOGE/XRP/ADA/HYPE/BCH/BNB 币种）')
                 skip_count += 1
                 continue
+
+            # 日均交易超过30笔判定为高频交易机器人，剔除
+            avg_trades = float(features.get('avg_trades_per_day', 0))
+            if avg_trades > 30:
+                print(f"   ⚠️ 日均交易{avg_trades:.1f}笔 > 30，判定为高频机器人，剔除...")
+                purge_address(address, f'高频交易（日均{avg_trades:.1f}笔 > 30）')
+                skip_count += 1
+                continue
+
             save_features(address, features)
             success_count += 1
         except Exception as e:
