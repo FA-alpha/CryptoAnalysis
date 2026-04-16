@@ -251,12 +251,17 @@ async def fetch_ledger_updates_paginated(
         if client is None:
             client = httpx.AsyncClient(timeout=30.0)
 
+        # 全量模式：不传 startTime，用 endTime 往前翻页
+        # 增量模式：传 startTime，翻页方式不变
+        is_full_mode = start_time_ms is None
+        current_end_time = end_time_ms  # 全量时初始为 None（拿最新）
+
         while True:
             payload = {"type": "userNonFundingLedgerUpdates", "user": user_address}
-            if query_start_time:
+            if not is_full_mode and query_start_time:
                 payload["startTime"] = query_start_time
-            if end_time_ms:
-                payload["endTime"] = end_time_ms
+            if current_end_time:
+                payload["endTime"] = current_end_time
             payload["limit"] = limit
 
             logger.debug("Querying ledger updates with payload: %s", payload)
@@ -298,25 +303,30 @@ async def fetch_ledger_updates_paginated(
                     len(all_updates),
                 )
 
-                if query_start_time is not None and earliest_time_in_batch < query_start_time:
-                    query_start_time = earliest_time_in_batch - 1
-                    logger.debug("Adjusting next query start time to: %s", query_start_time)
+                if is_full_mode:
+                    # 全量模式：返回数量 < limit 说明已拿到最早
+                    if len(batch_updates) < limit:
+                        logger.info("Full mode: got less than limit, all history fetched.")
+                        break
+                    # 否则用最早时间为新的 endTime 往前翼页
+                    current_end_time = int(earliest_time_in_batch) - 1
+                    logger.debug("Full mode: next endTime = %s", current_end_time)
                     await asyncio.sleep(0.1)
                 else:
-                    logger.info(
-                        "Reached end of available data or initial query range. "
-                        "Stopping fetch."
-                    )
-                    break
+                    # 增量模式：用最早时间为新的 startTime
+                    if earliest_time_in_batch < query_start_time:
+                        query_start_time = earliest_time_in_batch - 1
+                        logger.debug("Incremental mode: next startTime = %s", query_start_time)
+                        await asyncio.sleep(0.1)
+                    else:
+                        logger.info("Incremental mode: reached end of range, stopping.")
+                        break
             else:
                 logger.info("No valid updates processed in this batch. Stopping fetch.")
                 break
 
-            if len(all_updates) >= 5000:
-                logger.warning(
-                    "Reached 5000 updates limit, stopping fetch to prevent excessive "
-                    "data retrieval. Adjust script if more is needed."
-                )
+            if len(all_updates) >= 10000:
+                logger.warning("Reached 10000 updates limit, stopping fetch.")
                 break
 
     except httpx.HTTPStatusError as e:
@@ -500,17 +510,23 @@ async def main():
 
     addresses_to_monitor = []
 
-    # 按 fetch_address_fills_incremental.py 的 SQL 方式获取 active 地址
-    try:
-        addresses_to_monitor = get_all_active_addresses()
-        if not addresses_to_monitor:
-            logger.warning("No active addresses found in hl_address_list, nothing to process.")
+    # 支持单地址参数：python fetch_ledger_updates.py <address>
+    if len(sys.argv) > 1:
+        single_address = sys.argv[1].strip()
+        logger.info("单地址模式: %s", single_address)
+        addresses_to_monitor = [single_address]
+    else:
+        # 批量模式：从 hl_address_list 获取所有 active 地址
+        try:
+            addresses_to_monitor = get_all_active_addresses()
+            if not addresses_to_monitor:
+                logger.warning("No active addresses found in hl_address_list, nothing to process.")
+                return
+            else:
+                logger.info("Found %s active addresses to monitor.", len(addresses_to_monitor))
+        except Exception as e:
+            logger.error(f"Error retrieving active addresses from DB: {e}", exc_info=True)
             return
-        else:
-            logger.info("Found %s active addresses to monitor.", len(addresses_to_monitor))
-    except Exception as e:
-        logger.error(f"Error retrieving active addresses from DB: {e}", exc_info=True)
-        return
 
     delay_seconds = 0.5
 
@@ -523,60 +539,53 @@ async def main():
         )
 
         fetch_start_time = None
+        fetch_end_time = None
+        earliest_db_time = None
+        latest_db_time = None
+
         try:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute(
-                """
-                SELECT MAX(time) FROM hl_ledger_updates
-                WHERE address = %s
-                """,
+                "SELECT MIN(time), MAX(time) FROM hl_ledger_updates WHERE address = %s",
                 (user_address,),
             )
             result = cursor.fetchone()
-            latest_db_time = result[0] if result else None
-
-            if latest_db_time:
-                fetch_start_time = latest_db_time - 1
-                logger.info(
-                    "Latest DB time for %s: %s. Fetching from: %s",
-                    user_address,
-                    latest_db_time,
-                    fetch_start_time,
-                )
-            else:
-                fetch_start_time = int(
-                    (datetime.now(timezone.utc) - timedelta(days=7)).timestamp() * 1000
-                )
-                logger.info(
-                    "No DB record for %s. Fetching last 7 days starting from: %s",
-                    user_address,
-                    fetch_start_time,
-                )
+            earliest_db_time = result[0] if result and result[0] else None
+            latest_db_time = result[1] if result and result[1] else None
         except Exception as e:
-            logger.error(
-                "Error checking DB for %s: %s. Using default 7-day fetch.",
-                user_address,
-                e,
-                exc_info=True,
-            )
-            fetch_start_time = int((datetime.now(timezone.utc) - timedelta(days=7)).timestamp() * 1000)
+            logger.error("Error checking DB for %s: %s", user_address, e, exc_info=True)
         finally:
             if "cursor" in locals():
                 cursor.close()
             if "conn" in locals():
                 conn.close()
 
-        updates = await fetch_ledger_updates_paginated(
-            user_address,
-            start_time_ms=fetch_start_time,
-        )
+        total_saved = 0
 
-        if updates:
-            saved_count = await save_ledger_updates_to_db(updates)
-            logger.info(f"Address {user_address}: Saved {saved_count} ledger updates.")
+        if not latest_db_time:
+            # --- 全量模式：不传任何时间参数，拉全量 ---
+            logger.info("No DB record for %s, fetching full history.", user_address)
+            updates = await fetch_ledger_updates_paginated(user_address)
+            if updates:
+                saved = await save_ledger_updates_to_db(updates)
+                total_saved += saved
         else:
-            logger.info(f"Address {user_address}: No new or valid ledger updates to save.")
+            # --- 增量模式：从最新时间往后 ---
+            fetch_start_time = latest_db_time - 1
+            logger.info("Incremental update for %s from %s", user_address, fetch_start_time)
+            updates = await fetch_ledger_updates_paginated(
+                user_address,
+                start_time_ms=fetch_start_time,
+            )
+            if updates:
+                saved = await save_ledger_updates_to_db(updates)
+                total_saved += saved
+
+        if total_saved > 0:
+            logger.info(f"Address {user_address}: Total saved {total_saved} ledger updates.")
+        else:
+            logger.info(f"Address {user_address}: No new ledger updates.")
             
         if i < len(addresses_to_monitor) - 1:
             await asyncio.sleep(delay_seconds)

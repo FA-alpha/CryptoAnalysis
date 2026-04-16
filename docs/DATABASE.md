@@ -13,14 +13,14 @@
 
 | 表名 | 说明 | 状态 |
 |------|------|------|
-| [hl_address_features](#hl-address-features) | 地址特征（计算结果） | ✅ 使用中 |
+| [hl_address_features](#hl-address-features) | 地址特征（计算结果） | ✅ 使用中（V3新增字段）|
 | [hl_address_list](#hl-address-list) | 地址列表 | ✅ 使用中 |
 | [hl_backtest_results](#hl-backtest-results) | 回测结果 | ✅ 使用中 |
 | [hl_fills](#hl-fills) | 交易历史（原始成交数据） | ✅ 使用中 |
 | [hl_ledger_updates](#hl-ledger-updates) | 非资金费账本流水（充值/提现/转账/vault） | ✅ 使用中 |
 | [hl_follow_trades](#hl-follow-trades) | 跟单交易记录 | ✅ 使用中 |
 | [hl_fragile_pool](#hl-fragile-pool) | 脆弱地址池（实时监控） | ✅ 使用中 |
-| [hl_fragile_scores](#hl-fragile-scores) | 脆弱地址评分 | ✅ 使用中 |
+| [hl_fragile_scores](#hl-fragile-scores) | 脆弱地址评分 | ✅ 使用中（V3新增字段）|
 | [hl_monitor_logs](#hl-monitor-logs) | 实时监控日志 | ✅ 使用中 |
 | [hl_position_details](#hl-position-details) | 持仓明细 | ✅ 使用中 |
 | [hl_position_snapshots](#hl-position-snapshots) | 持仓快照（汇总） | ✅ 使用中 |
@@ -61,14 +61,8 @@ CREATE TABLE `hl_address_features` (
   `max_margin_utilization` decimal(5,2) DEFAULT NULL COMMENT '最大保证金使用率(%)',
   `coin_concentration` decimal(5,2) DEFAULT NULL COMMENT '单币种集中度(%)',
   `liquidation_count` int DEFAULT '0' COMMENT '清算次数',
-  `max_drawdown` decimal(5,2) DEFAULT NULL COMMENT '最大回撤(%)',
-  `loss_add_ratio` decimal(5,2) DEFAULT NULL COMMENT '浮亏加仓率(%)',
-  `hold_loss_ratio` decimal(10,2) DEFAULT NULL COMMENT '死扛指数(亏损持仓时间/盈利持仓时间)',
-  `chase_ratio` decimal(5,2) DEFAULT NULL COMMENT '追涨杀跌率(%)',
-  `total_loss_holding_seconds` bigint DEFAULT NULL COMMENT '亏损持仓总时长(秒)',
-  `total_profit_holding_seconds` bigint DEFAULT NULL COMMENT '盈利持仓总时长(秒)',
-  `avg_loss_holding_seconds` decimal(20,2) DEFAULT NULL COMMENT '平均亏损持仓时长(秒)',
-  `avg_profit_holding_seconds` decimal(20,2) DEFAULT NULL COMMENT '平均盈利持仓时长(秒)',
+  `max_drawdown` decimal(5,2) DEFAULT NULL COMMENT '最大回撤(%, 待实现)',
+  `hold_loss_ratio` decimal(10,2) DEFAULT NULL COMMENT '死扛指数(亏损持仓时间/盈利持仓时间, 待实现)',
   `active_days` int DEFAULT NULL COMMENT '活跃天数',
   `avg_trades_per_day` decimal(10,2) DEFAULT NULL COMMENT '日均交易次数',
   `last_trade_time` bigint DEFAULT NULL COMMENT '最后一笔交易时间戳(ms)',
@@ -100,17 +94,23 @@ CREATE TABLE `hl_address_features` (
 | `max_margin_utilization` | decimal(5,2) | ❌ | 最大保证金使用率(%) |
 | `coin_concentration` | decimal(5,2) | ❌ | 单币种集中度(%) |
 | `liquidation_count` | int | ❌ | 清算次数 |
-| `max_drawdown` | decimal(5,2) | ❌ | 最大回撤(%) |
-| `loss_add_ratio` | decimal(5,2) | ❌ | 浮亏加仓率(%) |
-| `hold_loss_ratio` | decimal(10,2) | ❌ | 死扛指数(亏损持仓时间/盈利持仓时间) |
-| `chase_ratio` | decimal(5,2) | ❌ | 追涨杀跌率(%) |
-| `total_loss_holding_seconds` | bigint | ❌ | 亏损持仓总时长(秒) |
-| `total_profit_holding_seconds` | bigint | ❌ | 盈利持仓总时长(秒) |
-| `avg_loss_holding_seconds` | decimal(20,2) | ❌ | 平均亏损持仓时长(秒) |
-| `avg_profit_holding_seconds` | decimal(20,2) | ❌ | 平均盈利持仓时长(秒) |
+| `max_drawdown` | decimal(5,2) | ❌ | 最大回撤(%，待实现) |
+| `hold_loss_ratio` | decimal(10,2) | ❌ | 死扛指数(亏损持仓时间/盈利持仓时间，待实现) |
 | `active_days` | int | ❌ | 活跃天数 |
 | `avg_trades_per_day` | decimal(10,2) | ❌ | 日均交易次数 |
 | `last_trade_time` | bigint | ❌ | 最后一笔交易时间戳(ms) |
+| `liquidation_per_month` | decimal(10,2) | ❌ | 清算次数/月 |
+| `has_refill_behavior` | tinyint(1) | ❌ | 是否有补仓行为(0/1) |
+| `consecutive_loss_add_count` | int | ❌ | 连续亏损后加仓次数 |
+| `add_position_score` | decimal(10,2) | ❌ | 加仓效果得分 |
+| `scalping_score` | decimal(10,2) | ❌ | 做T行为得分 |
+| `max_consecutive_loss_count` | int | ❌ | 最长连续亏损笔数 |
+| `avg_refill_count` | decimal(10,2) | ❌ | **[V3新增]** 平均补仓次数（订单周期平均，四舍五入） |
+| `scalping_count` | int | ❌ | **[V3新增]** 做T累计总次数 |
+| `is_excluded` | tinyint(1) | ❌ | **[V3新增]** 是否剔除储备池(做T>15或等差规律性补仓) |
+| `chase_rate` | decimal(5,2) | ❌ | **[V3新增]** 追涨杀跌率(%) |
+| `loss_concentration` | decimal(5,2) | ❌ | **[V3新增]** 单一币种亏损集中度(%) |
+| `avg_holding_hours` | decimal(10,2) | ❌ | **[V3新增]** 平均持仓时长(小时) |
 
 ### **索引**
 
@@ -546,6 +546,13 @@ CREATE TABLE `hl_fragile_scores` (
 | `pool_weight` | decimal(5,4) | ❌ | 池子权重 |
 | `pool_entry_date` | date | ❌ | 入池日期 |
 | `pool_exit_date` | date | ❌ | 出池日期 |
+| `trading_behavior_score` | decimal(10,2) | ❌ | 加仓/做T行为得分（可负） |
+| `factor1_score` | decimal(5,2) | ❌ | **[V3新增]** 因子一：补仓模式得分（/15） |
+| `factor2_score` | decimal(5,2) | ❌ | **[V3新增]** 因子二：综合盈亏得分（/20） |
+| `factor3_score` | decimal(5,2) | ❌ | **[V3新增]** 因子三：清算得分（/25） |
+| `factor4_score` | decimal(5,2) | ❌ | **[V3新增]** 因子四：追涨杀跌+亏损集中度得分（/20） |
+| `factor5_score` | decimal(5,2) | ❌ | **[V3新增]** 因子五：追加保证金得分（暂缓，固定0分） |
+| `factor6_score` | decimal(5,2) | ❌ | **[V3新增]** 因子六：平均持仓时长得分（/5） |
 
 ### **索引**
 

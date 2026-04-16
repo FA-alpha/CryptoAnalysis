@@ -1,5 +1,32 @@
 # 更新日志
 
+## [0.3.0] - 2026-04-16
+
+### 🎯 因子五实现 + 数据库清理
+
+#### 新功能
+- ✅ **因子五：追加保证金（20分）** 正式实现
+  - 识别逻辑：`accountClassTransfer + to_perp=1` + 发生在亏损持仓期间
+  - 评分：1次=5分 / 3次=10分 / 5次=15分 / ≥10次=20分
+- ✅ **`fetch_ledger_updates.py`** 升级
+  - 新增单地址模式：`python fetch_ledger_updates.py <address>`
+  - 全量模式：无历史数据时不传时间参数，拉取全部历史
+  - 增量模式：有历史数据时从 `MAX(time)` 往后增量
+- ✅ **主流币种过滤**：特征计算仅统计 BTC/ETH/SOL/DOGE/XRP/ADA/HYPE/BCH/BNB
+
+#### 数据库变更
+- ✅ `hl_address_features` 新增字段：`margin_call_count`
+- ✅ `hl_address_features` 删除废弃字段：`loss_add_ratio`、`chase_ratio`、`total_loss_holding_seconds`、`total_profit_holding_seconds`、`avg_loss_holding_seconds`、`avg_profit_holding_seconds`
+- ✅ `hl_fragile_scores` 删除废弃字段：`risk_behavior_score`、`loss_feature_score`、`mentality_score`、`trading_behavior_score`、`in_pool`、`pool_weight`、`pool_entry_date`、`pool_exit_date`
+- ✅ 删除废弃表：`hl_fragile_model_v2`、`hl_fragile_pool_dev1`、`hl_fragile_pool_v3`
+
+#### 文档更新
+- ✅ `sql/schema.sql` - 同步最新表结构
+- ✅ `docs/DATABASE.md` - 同步字段变更
+- ✅ `docs/SCRIPTS.md` - 新增 fetch_ledger_updates / v2 脚本说明
+
+---
+
 ## [0.2.1] - 2026-04-13 19:00
 
 ### 🔧 评分模型 v2.1 优化

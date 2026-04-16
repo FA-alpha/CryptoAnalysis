@@ -8,11 +8,14 @@ scripts/
 ├── import_coinglass_from_json.py        # 从本地 JSON 批量导入 CoinGlass 地址（离线导入）
 ├── fetch_hyperbot_fragile_addresses.py  # 从 HyperBot discover 发现脆弱地址并入库（分片抓取，支持几千条）
 ├── fetch_address_fills_incremental.py   # 统一版 fills 采集（全量/增量自动判断）⭐ 日常使用
-├── fetch_address_fills_backfill.py      # 历史 fills 补采（仅在需要补 90 天历史时手动执行一次）
+├── fetch_address_fills_backfill.py      # 历史 fills 补采（仅在需要补超过2000条历史时手动执行一次）
+├── fetch_ledger_updates.py              # 充提记录采集（全量/增量自动判断）⭐ 日常使用
 ├── fetch_all_position_snapshots.py      # 批量获取持仓快照（含 PnL）⭐
 ├── fetch_position_snapshots.py          # 单地址持仓快照
-├── calculate_address_features.py        # 地址特征计算
-└── calculate_fragile_scores.py          # 脆弱地址评分
+├── calculate_address_features_v2.py     # 地址特征计算 v2（当前使用）⭐
+├── calculate_fragile_scores_v2.py       # 脆弱地址评分 v2（当前使用）⭐
+├── calculate_address_features.py        # 地址特征计算 v1（已废弃）
+└── calculate_fragile_scores.py          # 脆弱地址评分 v1（已废弃）
 ```
 
 ---
@@ -515,4 +518,110 @@ crontab -l
 
 ---
 
-**最后更新**: 2026-04-10（新增 import_coinglass_from_json.py；更新 fetch_coinglass_addresses.py 技术方案和过滤规则说明）
+---
+
+## 8. fetch_ledger_updates.py（充提记录采集）⭐
+
+### 功能说明
+
+采集地址的充提记录（`userNonFundingLedgerUpdates`），用于识别**追加保证金行为**（`accountClassTransfer + to_perp=1`）。
+
+- **无历史数据**（新地址）→ 不传任何时间参数，拉取全量历史
+- **有历史数据** → 从 `MAX(time)` 往后增量拉取
+
+### 使用方式
+
+```bash
+# 批量模式：处理所有 active 地址
+python scripts/fetch_ledger_updates.py
+
+# 单地址模式
+python scripts/fetch_ledger_updates.py 0xdeeacd0aaffb70edd79f410a37c8b20e0a7fcd65
+```
+
+### 关键字段
+
+| type | to_perp | 含义 |
+|------|---------|------|
+| `accountClassTransfer` | 1 | 从现货转入合约 → **追加保证金** |
+| `accountClassTransfer` | 0 | 从合约转出到现货 |
+| `deposit` | - | 外部充值 |
+| `withdraw` | - | 提现 |
+
+---
+
+## 9. calculate_address_features_v2.py（特征计算 v2）⭐
+
+### 功能说明
+
+基于 `hl_fills`、`hl_position_snapshots`、`hl_ledger_updates` 计算地址特征，保存到 `hl_address_features`。
+
+**仅统计主流币种**：BTC/ETH/SOL/DOGE/XRP/ADA/HYPE/BCH/BNB（剔除小币种）
+
+### 计算的特征
+
+| 特征 | 说明 |
+|------|------|
+| `win_rate` | 胜率 |
+| `profit_loss_ratio` | 盈亏比 |
+| `avg_leverage` | 平均杠杆（快照） |
+| `liquidation_per_month` | 清算次数/月 |
+| `consecutive_loss_add_count` | 连续亏损后加仓次数 |
+| `max_consecutive_loss_count` | 最长连续亏损笔数 |
+| `avg_refill_count` | 平均补仓次数 |
+| `chase_rate` | 追涨杀跌率 |
+| `loss_concentration` | 亏损集中度 |
+| `avg_holding_hours` | 平均持仓时长 |
+| `margin_call_count` | 追加保证金次数 |
+
+### 使用方式
+
+```bash
+# 批量模式
+python scripts/calculate_address_features_v2.py
+
+# 单地址模式
+python scripts/calculate_address_features_v2.py 0xdeeacd0aaffb70edd79f410a37c8b20e0a7fcd65
+```
+
+---
+
+## 10. calculate_fragile_scores_v2.py（评分 v2）⭐
+
+### 功能说明
+
+基于 `hl_address_features` 计算脆弱评分，保存到 `hl_fragile_scores`。
+
+### 评分体系（总分 105 分）
+
+| 因子 | 满分 | 说明 |
+|------|------|------|
+| 因子一：补仓模式 | 15 | 平均补仓次数 |
+| 因子二：综合盈亏 | 20 | 胜率 + 盈亏比 |
+| 因子三：清算 | 25 | 清算次数/月 + 历史清算总次数 |
+| 因子四：追涨+集中度 | 20 | 追涨杀跌率 + 亏损集中度 |
+| 因子五：追加保证金 | 20 | margin_call_count |
+| 因子六：持仓时长 | 5 | avg_holding_hours |
+
+### 等级划分
+
+| 等级 | 分数 | 说明 |
+|------|------|------|
+| L1 | ≥85 | 极度脆弱，重点监控 |
+| L2 | ≥70 | 高度脆弱 |
+| L3 | ≥50 | 中度脆弱 |
+| L4 | <50 | 低风险 |
+
+### 使用方式
+
+```bash
+# 批量模式
+python scripts/calculate_fragile_scores_v2.py
+
+# 单地址模式
+python scripts/calculate_fragile_scores_v2.py 0xdeeacd0aaffb70edd79f410a37c8b20e0a7fcd65
+```
+
+---
+
+**最后更新**: 2026-04-16（新增 fetch_ledger_updates.py；更新特征计算和评分为 v2；主流币种过滤；追加保证金因子五实现）

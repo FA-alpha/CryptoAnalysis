@@ -24,6 +24,10 @@ from utils.db_utils import get_connection
 FULL_CLOSE_DIFF_THRESHOLD = 0.02  # sz 与 start_position 差异 < 2%
 NEAR_LIQUIDATION_LOSS_PCT = 0.5   # 亏损占名义价值 >= 50%
 
+# 纳入分析的币种白名单（剔除小币种）
+TARGET_COINS = ('BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'ADA', 'HYPE', 'BCH', 'BNB')
+TARGET_COINS_PLACEHOLDER = ','.join(['%s'] * len(TARGET_COINS))
+
 
 def get_active_addresses() -> List[str]:
     """获取所有活跃地址"""
@@ -42,7 +46,7 @@ def get_active_addresses() -> List[str]:
 
 
 def calculate_basic_stats(address: str, cursor) -> Optional[Dict]:
-    """计算基础统计指标（胜率/盈亏比/交易频率）"""
+    """计算基础统计指标（胜率/盈亏比/交易频率，仅统计主流币种）"""
     print(f"   📊 基础统计...")
 
     cursor.execute('''
@@ -57,7 +61,8 @@ def calculate_basic_stats(address: str, cursor) -> Optional[Dict]:
             MAX(time) as data_end
         FROM hl_fills
         WHERE address = %s AND dir LIKE 'Close%%'
-    ''', (address,))
+          AND coin IN ({TARGET_COINS_PLACEHOLDER})
+    '''.format(TARGET_COINS_PLACEHOLDER=TARGET_COINS_PLACEHOLDER), (address, *TARGET_COINS))
 
     row = cursor.fetchone()
     if not row or not row[0]:
@@ -132,7 +137,8 @@ def calculate_liquidation_stats(address: str, cursor) -> Dict:
     cursor.execute('''
         SELECT COUNT(*) FROM hl_fills
         WHERE address = %s AND dir LIKE 'Liquidat%%'
-    ''', (address,))
+          AND coin IN ({TARGET_COINS_PLACEHOLDER})
+    '''.format(TARGET_COINS_PLACEHOLDER=TARGET_COINS_PLACEHOLDER), (address, *TARGET_COINS))
     official_liq = cursor.fetchone()[0] or 0
 
     # 近似清算
@@ -142,15 +148,19 @@ def calculate_liquidation_stats(address: str, cursor) -> Dict:
           AND dir LIKE 'Close%%'
           AND closed_pnl < 0
           AND start_position > 0
+          AND coin IN ({TARGET_COINS_PLACEHOLDER})
           AND ABS(sz - ABS(start_position)) / NULLIF(ABS(start_position), 0) < %s
           AND ABS(closed_pnl) / NULLIF(ABS(sz * px), 0) >= %s
-    ''', (address, FULL_CLOSE_DIFF_THRESHOLD, NEAR_LIQUIDATION_LOSS_PCT))
+    '''.format(TARGET_COINS_PLACEHOLDER=TARGET_COINS_PLACEHOLDER), (address, *TARGET_COINS, FULL_CLOSE_DIFF_THRESHOLD, NEAR_LIQUIDATION_LOSS_PCT))
     near_liq = cursor.fetchone()[0] or 0
 
     total_liq = official_liq + near_liq
 
     # 活跃月数
-    cursor.execute('SELECT MIN(time), MAX(time) FROM hl_fills WHERE address = %s', (address,))
+    cursor.execute(
+        'SELECT MIN(time), MAX(time) FROM hl_fills WHERE address = %s AND coin IN ({p})'.format(p=TARGET_COINS_PLACEHOLDER),
+        (address, *TARGET_COINS)
+    )
     row = cursor.fetchone()
     if row and row[0] and row[1]:
         days = (row[1] - row[0]) / 1000 / 86400
@@ -179,8 +189,9 @@ def calculate_refill_behavior(address: str, cursor) -> Dict:
         SELECT coin, dir, time, sz, start_position
         FROM hl_fills
         WHERE address = %s AND (dir LIKE 'Open%%' OR dir LIKE 'Close%%')
+          AND coin IN ({TARGET_COINS_PLACEHOLDER})
         ORDER BY coin, time
-    ''', (address,))
+    '''.format(TARGET_COINS_PLACEHOLDER=TARGET_COINS_PLACEHOLDER), (address, *TARGET_COINS))
 
     fills = cursor.fetchall()
     has_refill = False
@@ -220,8 +231,9 @@ def calculate_consecutive_loss_add(address: str, cursor) -> Dict:
         SELECT dir, coin, closed_pnl, time
         FROM hl_fills
         WHERE address = %s
+          AND coin IN ({TARGET_COINS_PLACEHOLDER})
         ORDER BY time
-    ''', (address,))
+    '''.format(TARGET_COINS_PLACEHOLDER=TARGET_COINS_PLACEHOLDER), (address, *TARGET_COINS))
 
     fills = cursor.fetchall()
     
@@ -266,6 +278,110 @@ def calculate_consecutive_loss_add(address: str, cursor) -> Dict:
     }
 
 
+def calculate_refill_and_scalping(address: str, cursor) -> Dict:
+    """
+    因子一：补仓模式 + 做T识别
+
+    逻辑：
+    - 按 coin + 方向 遍历，找 start_position=0 的 Open 作为周期起点
+    - Open 后无 Close → 补仓计数 +1
+    - 遇到 Close → 重置补仓计数，检测是否做T
+    - 做T：同周期内 Open→Close→Open
+    - 等差规律性补仓：连续3次以上加仓价格间距相等
+    """
+    print(f"   🔄 补仓模式 + 做T...")
+
+    cursor.execute('''
+        SELECT coin, dir, time, sz, px, start_position
+        FROM hl_fills
+        WHERE address = %s AND (dir LIKE 'Open%%' OR dir LIKE 'Close%%')
+          AND coin IN ({TARGET_COINS_PLACEHOLDER})
+        ORDER BY coin, time
+    '''.format(TARGET_COINS_PLACEHOLDER=TARGET_COINS_PLACEHOLDER), (address, *TARGET_COINS))
+
+    fills = cursor.fetchall()
+    if not fills:
+        return {'avg_refill_count': Decimal('0'), 'scalping_count': 0, 'is_excluded': 0}
+
+    from collections import defaultdict
+    by_coin_dir = defaultdict(list)
+    for coin, direction, t, sz, px, start_pos in fills:
+        key = (coin, 'Long' if 'Long' in direction else 'Short')
+        by_coin_dir[key].append((direction, t, float(sz), float(px), float(start_pos or 0)))
+
+    all_refill_counts = []
+    total_scalping = 0
+
+    for key, trades in by_coin_dir.items():
+        i = 0
+        while i < len(trades):
+            direction, t, sz, px, start_pos = trades[i]
+            # 找订单周期起点
+            if 'Open' not in direction or start_pos != 0:
+                i += 1
+                continue
+
+            # 周期开始
+            open_prices = [px]  # 记录加仓价格（用于等差检测）
+            refill_count = 0
+            had_close = False
+            i += 1
+
+            while i < len(trades):
+                d2, t2, sz2, px2, sp2 = trades[i]
+                if 'Open' in d2:
+                    if not had_close:
+                        # 补仓
+                        refill_count += 1
+                        open_prices.append(px2)
+                    else:
+                        # Close 后再 Open = 做T
+                        total_scalping += 1
+                        had_close = False
+                        open_prices.append(px2)
+                    i += 1
+                elif 'Close' in d2:
+                    had_close = True
+                    # 判断是否归零
+                    if abs(sp2) <= sz2 * 1.05:
+                        break
+                    i += 1
+                else:
+                    i += 1
+
+            all_refill_counts.append(refill_count)
+
+    # 计算平均补仓次数
+    avg_refill = round(sum(all_refill_counts) / len(all_refill_counts)) if all_refill_counts else 0
+
+    # 判断是否剔除
+    is_excluded = 0
+    if total_scalping > 15:
+        is_excluded = 1
+    elif avg_refill > 15:
+        # 检查等差规律性：取最后一个周期补仓价格列表判断
+        # 简化：遍历所有周期，找到任意一个等差补仓周期即标记
+        for key, trades in by_coin_dir.items():
+            prices = []
+            for d, t, sz, px, sp in trades:
+                if 'Open' in d and sp > 0:
+                    prices.append(px)
+            if len(prices) >= 3:
+                diffs = [abs(prices[j+1] - prices[j]) for j in range(len(prices)-1)]
+                avg_diff = sum(diffs) / len(diffs)
+                if avg_diff > 0 and all(abs(d - avg_diff) / avg_diff < 0.05 for d in diffs):
+                    is_excluded = 1
+                    break
+
+    print(f"      平均补仓: {avg_refill}次 | 做T: {total_scalping}次 | 剔除: {'是' if is_excluded else '否'}")
+
+    return {
+        'avg_refill_count': Decimal(str(avg_refill)),
+        'scalping_count': int(total_scalping),
+        'is_excluded': int(is_excluded),
+    }
+
+
 def calculate_add_position_score(address: str, cursor) -> Dict:
     """
     加仓效果得分（双向±分）
@@ -288,6 +404,211 @@ def calculate_scalping_score(address: str, cursor) -> Dict:
     print(f"   ⚡ 做T行为（简化）...")
     # TODO: 完整版需要精细识别，此处先返回 0
     return {'scalping_score': Decimal('0')}
+
+
+def calculate_avg_holding_hours(address: str, cursor) -> Dict:
+    """
+    计算平均持仓时长（小时）
+
+    逻辑：按 coin + 方向 识别订单周期
+    - start_position = 0 的 Open 为起点
+    - position 归零的 Close 为终点
+    - 持仓时长 = 终点时间 - 起点时间
+    - 取所有周期的算术平均值
+    """
+    print(f"   ⏱️ 平均持仓时长...")
+
+    cursor.execute('''
+        SELECT coin, dir, time, sz, start_position
+        FROM hl_fills
+        WHERE address = %s AND (dir LIKE 'Open%%' OR dir LIKE 'Close%%')
+          AND coin IN ({TARGET_COINS_PLACEHOLDER})
+        ORDER BY coin, time
+    '''.format(TARGET_COINS_PLACEHOLDER=TARGET_COINS_PLACEHOLDER), (address, *TARGET_COINS))
+
+    fills = cursor.fetchall()
+    if not fills:
+        return {'avg_holding_hours': Decimal('0')}
+
+    from collections import defaultdict
+    by_coin_dir = defaultdict(list)
+    for coin, direction, t, sz, start_pos in fills:
+        key = (coin, 'Long' if 'Long' in direction else 'Short')
+        by_coin_dir[key].append((direction, t, float(sz), float(start_pos or 0)))
+
+    holding_durations = []
+
+    for key, trades in by_coin_dir.items():
+        i = 0
+        while i < len(trades):
+            direction, t, sz, start_pos = trades[i]
+            # 找到订单周期起点：start_position = 0 的 Open
+            if 'Open' in direction and start_pos == 0:
+                open_time = t
+                current_pos = sz
+                i += 1
+                # 往后找到 position 归零的 Close
+                while i < len(trades):
+                    d2, t2, sz2, sp2 = trades[i]
+                    if 'Close' in d2:
+                        current_pos = sp2 - sz2 if 'Long' in d2 else sp2 + sz2
+                        if abs(sp2) <= sz2 * 1.05:  # position 归零
+                            duration_ms = t2 - open_time
+                            if duration_ms > 0:
+                                holding_durations.append(duration_ms / 1000 / 3600)  # 转换为小时
+                            break
+                    i += 1
+            else:
+                i += 1
+
+    if not holding_durations:
+        return {'avg_holding_hours': Decimal('0')}
+
+    avg_hours = sum(holding_durations) / len(holding_durations)
+    print(f"      平均持仓时长: {avg_hours:.2f} 小时（样本数={len(holding_durations)}）")
+
+    return {'avg_holding_hours': Decimal(str(round(avg_hours, 2)))}
+
+
+def calculate_chase_rate_and_loss_concentration(address: str, cursor) -> Dict:
+    """
+    因子四特征计算：
+    1. 追涨杀跌率：按订单周期，加仓价 > 持仓均价(多) 或 < 持仓均价(空) = 情绪化
+    2. 亏损集中度：单一币种亏损占总亏损比例
+    """
+    print(f"   📊 追涨杀跌率 + 亏损集中度...")
+
+    # --- 追涨杀跌率 ---
+    cursor.execute('''
+        SELECT coin, dir, time, sz, px, start_position
+        FROM hl_fills
+        WHERE address = %s AND (dir LIKE 'Open%%' OR dir LIKE 'Close%%')
+          AND coin IN ({TARGET_COINS_PLACEHOLDER})
+        ORDER BY coin, time
+    '''.format(TARGET_COINS_PLACEHOLDER=TARGET_COINS_PLACEHOLDER), (address, *TARGET_COINS))
+    fills = cursor.fetchall()
+
+    from collections import defaultdict
+    by_coin_dir = defaultdict(list)
+    for coin, direction, t, sz, px, start_pos in fills:
+        key = (coin, 'Long' if 'Long' in direction else 'Short')
+        by_coin_dir[key].append((direction, t, float(sz), float(px), float(start_pos or 0)))
+
+    total_cycles = 0
+    chase_cycles = 0
+
+    for (coin, side), trades in by_coin_dir.items():
+        i = 0
+        while i < len(trades):
+            direction, t, sz, px, start_pos = trades[i]
+            if 'Open' not in direction or start_pos != 0:
+                i += 1
+                continue
+            # 周期起点
+            total_cycles += 1
+            avg_price = px
+            position = sz
+            has_chase = False
+            i += 1
+            while i < len(trades):
+                d2, t2, sz2, px2, sp2 = trades[i]
+                if 'Open' in d2 and sp2 > 0:
+                    # 判断追涨杀跌
+                    if side == 'Long' and px2 > avg_price:
+                        has_chase = True
+                    elif side == 'Short' and px2 < avg_price:
+                        has_chase = True
+                    # 更新均价
+                    avg_price = (position * avg_price + sz2 * px2) / (position + sz2)
+                    position += sz2
+                    i += 1
+                elif 'Close' in d2:
+                    if abs(sp2) <= sz2 * 1.05:
+                        break
+                    i += 1
+                else:
+                    i += 1
+            if has_chase:
+                chase_cycles += 1
+
+    chase_rate = (chase_cycles / total_cycles * 100) if total_cycles > 0 else 0.0
+
+    # --- 亏损集中度 ---
+    cursor.execute(f'''
+        SELECT coin, SUM(closed_pnl) as total_loss
+        FROM hl_fills
+        WHERE address = %s
+          AND closed_pnl < 0
+          AND dir LIKE 'Close%%'
+          AND coin IN ({TARGET_COINS_PLACEHOLDER})
+        GROUP BY coin
+    '''.format(TARGET_COINS_PLACEHOLDER=TARGET_COINS_PLACEHOLDER), (address, *TARGET_COINS))
+    rows = cursor.fetchall()
+
+    loss_concentration = 0.0
+    if rows:
+        total_loss = sum(abs(float(r[1])) for r in rows)
+        if total_loss > 0:
+            max_coin_loss = max(abs(float(r[1])) for r in rows)
+            loss_concentration = max_coin_loss / total_loss * 100
+
+    print(f"      追涨杀跌率: {chase_rate:.1f}% | 亏损集中度: {loss_concentration:.1f}%")
+
+    return {
+        'chase_rate': Decimal(str(round(chase_rate, 2))),
+        'loss_concentration': Decimal(str(round(loss_concentration, 2))),
+    }
+
+
+def calculate_margin_call_count(address: str, cursor) -> Dict:
+    """
+    追加保证金次数
+
+    识别逻辑：
+    - accountClassTransfer + to_perp=1（从现货转入合约）
+    - 发生在有持仓期间（前一笔 fill 是 Open）
+    - 且当时处于亏损状态（最近一笔 Close 的 PnL < 0，或无 Close 记录）
+    """
+    # 取所有 to_perp=1 的转账
+    cursor.execute('''
+        SELECT time FROM hl_ledger_updates
+        WHERE address = %s AND type = 'accountClassTransfer' AND to_perp = 1
+        ORDER BY time
+    ''', (address,))
+    transfers = [row[0] for row in cursor.fetchall()]
+
+    if not transfers:
+        return {'margin_call_count': 0}
+
+    # 取全部 fills（不限币种，用于判断持仓状态）
+    cursor.execute('''
+        SELECT time, dir, closed_pnl
+        FROM hl_fills
+        WHERE address = %s
+        ORDER BY time
+    ''', (address,))
+    fills = cursor.fetchall()
+
+    margin_call_count = 0
+    for t_time in transfers:
+        before = [(f[0], f[1], f[2]) for f in fills if f[0] <= t_time][-10:]
+        if not before:
+            continue
+
+        # 有未平仓的 Open
+        has_open = any('Open' in f[1] for f in before)
+        # 最近一笔 Close 是亏损（或没有 Close = 一直没平过）
+        last_close_pnl = next(
+            (float(f[2]) for f in reversed(before) if 'Close' in f[1] and f[2] is not None),
+            None
+        )
+        losing = last_close_pnl is None or last_close_pnl < 0
+
+        if has_open and losing:
+            margin_call_count += 1
+
+    print(f"      追加保证金: {margin_call_count}次 / 转入合约{len(transfers)}次")
+    return {'margin_call_count': margin_call_count}
 
 
 def calculate_other_features(address: str, cursor) -> Dict:
@@ -331,8 +652,12 @@ def calculate_features(address: str) -> Optional[Dict]:
         add_score = calculate_add_position_score(address, cursor)
         scalping = calculate_scalping_score(address, cursor)
         other = calculate_other_features(address, cursor)
+        holding = calculate_avg_holding_hours(address, cursor)
+        refill_v3 = calculate_refill_and_scalping(address, cursor)
+        chase_v3 = calculate_chase_rate_and_loss_concentration(address, cursor)
+        margin_call = calculate_margin_call_count(address, cursor)
 
-        features = {**basic, **leverage, **liquidation, **refill, **consecutive_loss, **add_score, **scalping, **other}
+        features = {**basic, **leverage, **liquidation, **refill, **consecutive_loss, **add_score, **scalping, **other, **holding, **refill_v3, **chase_v3, **margin_call}
 
         print(f"   ✅ 完成")
         print(f"      胜率: {features['win_rate']}% | 杠杆: {features['avg_leverage']}x | 清算/月: {features['liquidation_per_month']}")
@@ -368,7 +693,9 @@ def save_features(address: str, features: Dict) -> int:
                 coin_concentration, liquidation_count, liquidation_per_month,
                 has_refill_behavior, consecutive_loss_add_count, max_consecutive_loss_count,
                 add_position_score, scalping_score,
-                active_days, avg_trades_per_day, last_trade_time
+                active_days, avg_trades_per_day, last_trade_time,
+                avg_holding_hours, avg_refill_count, scalping_count, is_excluded,
+                chase_rate, loss_concentration, margin_call_count
             ) VALUES (
                 %s, NOW(),
                 %s, %s,
@@ -379,7 +706,8 @@ def save_features(address: str, features: Dict) -> int:
                 %s, %s, %s,
                 %s, %s, %s,
                 %s, %s,
-                %s, %s, %s
+                %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s
             )
         ''', (
             address,
@@ -392,6 +720,13 @@ def save_features(address: str, features: Dict) -> int:
             features['has_refill_behavior'], features['consecutive_loss_add_count'], features['max_consecutive_loss_count'],
             features['add_position_score'], features['scalping_score'],
             features['active_days'], features['avg_trades_per_day'], features['last_trade_time'],
+            features.get('avg_holding_hours', Decimal('0')),
+            features.get('avg_refill_count', Decimal('0')),
+            features.get('scalping_count', 0),
+            features.get('is_excluded', 0),
+            features.get('chase_rate', Decimal('0')),
+            features.get('loss_concentration', Decimal('0')),
+            features.get('margin_call_count', 0),
         ))
 
         conn.commit()

@@ -29,21 +29,28 @@ CREATE TABLE `hl_address_features` (
   `max_margin_utilization` decimal(5,2) DEFAULT NULL COMMENT '最大保证金使用率(%)',
   `coin_concentration` decimal(5,2) DEFAULT NULL COMMENT '单币种集中度(%)',
   `liquidation_count` int DEFAULT '0' COMMENT '清算次数',
-  `max_drawdown` decimal(5,2) DEFAULT NULL COMMENT '最大回撤(%)',
-  `loss_add_ratio` decimal(5,2) DEFAULT NULL COMMENT '浮亏加仓率(%)',
-  `hold_loss_ratio` decimal(10,2) DEFAULT NULL COMMENT '死扛指数(亏损持仓时间/盈利持仓时间)',
-  `chase_ratio` decimal(5,2) DEFAULT NULL COMMENT '追涨杀跌率(%)',
-  `total_loss_holding_seconds` bigint DEFAULT NULL COMMENT '亏损持仓总时长(秒)',
-  `total_profit_holding_seconds` bigint DEFAULT NULL COMMENT '盈利持仓总时长(秒)',
-  `avg_loss_holding_seconds` decimal(20,2) DEFAULT NULL COMMENT '平均亏损持仓时长(秒)',
-  `avg_profit_holding_seconds` decimal(20,2) DEFAULT NULL COMMENT '平均盈利持仓时长(秒)',
+  `max_drawdown` decimal(5,2) DEFAULT NULL COMMENT '最大回撤(%，待实现)',
+  `hold_loss_ratio` decimal(10,2) DEFAULT NULL COMMENT '死扛指数(亏损持仓时间/盈利持仓时间，待实现)',
   `active_days` int DEFAULT NULL COMMENT '活跃天数',
   `avg_trades_per_day` decimal(10,2) DEFAULT NULL COMMENT '日均交易次数',
   `last_trade_time` bigint DEFAULT NULL COMMENT '最后一笔交易时间戳(ms)',
+  `liquidation_per_month` decimal(10,2) DEFAULT NULL COMMENT '清算次数/月',
+  `has_refill_behavior` tinyint(1) DEFAULT '0' COMMENT '是否有后续补仓行为',
+  `consecutive_loss_add_count` int DEFAULT '0' COMMENT '连续亏损后加仓次数',
+  `add_position_score` decimal(10,2) DEFAULT '0.00' COMMENT '加仓效果得分（可负）',
+  `scalping_score` decimal(10,2) DEFAULT '0.00' COMMENT '做T行为得分（可负）',
+  `max_consecutive_loss_count` int DEFAULT '0' COMMENT '最长连续亏损笔数',
+  `avg_refill_count` decimal(10,2) DEFAULT NULL COMMENT '平均补仓次数',
+  `scalping_count` int DEFAULT NULL COMMENT '做T累计总次数',
+  `is_excluded` tinyint(1) DEFAULT '0' COMMENT '是否剔除储备池',
+  `chase_rate` decimal(5,2) DEFAULT NULL COMMENT '追涨杀跌率(%)',
+  `loss_concentration` decimal(5,2) DEFAULT NULL COMMENT '单一币种亏损集中度(%)',
+  `avg_holding_hours` decimal(10,2) DEFAULT NULL COMMENT '平均持仓时长(小时)',
+  `margin_call_count` int DEFAULT '0' COMMENT '追加保证金次数',
   PRIMARY KEY (`id`),
   KEY `idx_address_time` (`address`,`calculated_at` DESC),
   KEY `idx_calculated_at` (`calculated_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='地址特征(计算结果)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='地址特征(计算结果)';
 
 -- Table: hl_address_list
 DROP TABLE IF EXISTS `hl_address_list`;
@@ -181,22 +188,20 @@ CREATE TABLE `hl_fragile_scores` (
   `address` varchar(66) NOT NULL COMMENT '钱包地址',
   `feature_id` bigint DEFAULT NULL COMMENT '关联 hl_address_features.id',
   `scored_at` datetime NOT NULL COMMENT '评分时间',
-  `risk_behavior_score` int NOT NULL COMMENT '风险行为评分 /40',
-  `loss_feature_score` int NOT NULL COMMENT '亏损特征评分 /35',
-  `mentality_score` int NOT NULL COMMENT '心态特征评分 /25',
-  `total_score` int NOT NULL COMMENT '总分 /100',
-  `fragile_level` enum('L1','L2','L3','L4') DEFAULT NULL COMMENT '脆弱等级',
-  `in_pool` tinyint(1) DEFAULT '0' COMMENT '是否入池',
-  `pool_weight` decimal(5,4) DEFAULT '0.0000' COMMENT '池子权重',
-  `pool_entry_date` date DEFAULT NULL COMMENT '入池日期',
-  `pool_exit_date` date DEFAULT NULL COMMENT '出池日期',
+  `total_score` decimal(10,2) NOT NULL COMMENT '总分（可超100，可为负）',
+  `fragile_level` enum('L1','L2','L3','L4') DEFAULT NULL COMMENT '脆弱等级 L1≥85/L2≥70/L3≥50/L4<50',
+  `factor1_score` decimal(5,2) DEFAULT NULL COMMENT '因子一：补仓模式 /15',
+  `factor2_score` decimal(5,2) DEFAULT NULL COMMENT '因子二：综合盈亏 /20',
+  `factor3_score` decimal(5,2) DEFAULT NULL COMMENT '因子三：清算 /25',
+  `factor4_score` decimal(5,2) DEFAULT NULL COMMENT '因子四：追涨杀跌+亏损集中度 /20',
+  `factor5_score` decimal(5,2) DEFAULT '0.00' COMMENT '因子五：追加保证金 /20',
+  `factor6_score` decimal(5,2) DEFAULT NULL COMMENT '因子六：平均持仓时长 /5',
   PRIMARY KEY (`id`),
   KEY `feature_id` (`feature_id`),
   KEY `idx_address_time` (`address`,`scored_at` DESC),
   KEY `idx_level_score` (`fragile_level`,`total_score` DESC),
-  KEY `idx_in_pool` (`in_pool`,`fragile_level`),
   CONSTRAINT `hl_fragile_scores_ibfk_1` FOREIGN KEY (`feature_id`) REFERENCES `hl_address_features` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='脆弱地址评分';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='脆弱地址评分(v2)';
 
 -- Table: hl_monitor_logs
 DROP TABLE IF EXISTS `hl_monitor_logs`;
