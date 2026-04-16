@@ -320,7 +320,7 @@ def main():
         
         # 获取持仓状态
         state = fetch_clearinghouse_state(address)
-        time.sleep(0.5)  # 避免 429 限流
+        time.sleep(0.3)  # 避免 429 限流
         
         if not state:
             print(f"   ⚠️ 无持仓数据或获取失败")
