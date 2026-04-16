@@ -13,6 +13,28 @@ from hyperliquid.info import Info
 from utils.db_utils import get_connection
 
 
+def get_fund_level_by_account_value(account_value: Decimal) -> Optional[str]:
+    """
+    根据 accountValue 映射资金等级
+    - L1: [2,000, 5,000)
+    - L2: [5,000, 20,000)
+    - L3: [20,000, 50,000)
+    - L4: [50,000, 100,000)
+    - L5: [100,000, +inf)
+    """
+    if account_value >= Decimal("100000"):
+        return "L5"
+    if account_value >= Decimal("50000"):
+        return "L4"
+    if account_value >= Decimal("20000"):
+        return "L3"
+    if account_value >= Decimal("5000"):
+        return "L2"
+    if account_value >= Decimal("2000"):
+        return "L1"
+    return None
+
+
 def fetch_clearinghouse_state(address: str) -> Optional[Dict]:
     """
     获取地址的持仓状态
@@ -153,8 +175,17 @@ def save_snapshot(address: str, state: Dict) -> bool:
         else:
             print(f"   ℹ️ 无持仓（空仓状态）")
         
+        # 同步更新 hl_address_list 资金分层与最新账户资产
+        account_value_val = Decimal(str(margin.get('accountValue', 0)))
+        fund_level = get_fund_level_by_account_value(account_value_val)
+        cursor.execute('''
+            UPDATE hl_address_list
+            SET latest_account_value = %s, fund_level = %s
+            WHERE address = %s
+        ''', (account_value_val, fund_level, address))
+
         conn.commit()
-        print(f"✅ 保存完成!")
+        print(f"✅ 保存完成! fund_level={fund_level} account_value={account_value_val}")
         return True
         
     except Exception as e:

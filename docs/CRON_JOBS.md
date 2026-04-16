@@ -105,10 +105,10 @@ crontab -e
 3 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_all_position_snapshots.py >> /opt/CryptoAnalysis/logs/snapshot.log 2>&1
 
 # 北京 00:10 特征计算（依赖 fills + 快照数据）
-10 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_address_features.py >> /opt/CryptoAnalysis/logs/features.log 2>&1
+10 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_address_features_v2.py >> /opt/CryptoAnalysis/logs/features.log 2>&1
 
 # 北京 00:20 评分计算（依赖特征计算结果）
-20 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_fragile_scores.py >> /opt/CryptoAnalysis/logs/scores.log 2>&1
+20 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_fragile_scores_v2.py >> /opt/CryptoAnalysis/logs/scores.log 2>&1
 ```
 
 > ⚠️ **关键注意事项**：

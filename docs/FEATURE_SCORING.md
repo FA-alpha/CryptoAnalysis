@@ -9,11 +9,11 @@
 ```
 hl_fills + hl_position_snapshots + hl_position_details
                     ↓
-    calculate_address_features.py
+    calculate_address_features_v2.py
                     ↓
           hl_address_features
                     ↓
-    calculate_fragile_scores.py
+    calculate_fragile_scores_v2.py
                     ↓
           hl_fragile_scores
 ```
@@ -163,14 +163,14 @@ hl_fills + hl_position_snapshots + hl_position_details
 
 ```bash
 # Step 1：计算特征（所有地址）
-python scripts/calculate_address_features.py
+python scripts/calculate_address_features_v2.py
 
 # Step 2：计算评分
-python scripts/calculate_fragile_scores.py
+python scripts/calculate_fragile_scores_v2.py
 
 # 单地址模式
-python scripts/calculate_address_features.py 0x020ca66c...
-python scripts/calculate_fragile_scores.py 0x020ca66c...
+python scripts/calculate_address_features_v2.py 0x020ca66c...
+python scripts/calculate_fragile_scores_v2.py 0x020ca66c...
 ```
 
 ---
@@ -187,10 +187,10 @@ CRON_TZ=Asia/Shanghai
 3 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_all_position_snapshots.py >> /opt/CryptoAnalysis/logs/snapshot.log 2>&1
 
 # 00:10 特征计算
-10 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_address_features.py >> /opt/CryptoAnalysis/logs/features.log 2>&1
+10 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_address_features_v2.py >> /opt/CryptoAnalysis/logs/features.log 2>&1
 
 # 00:20 评分计算
-20 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_fragile_scores.py >> /opt/CryptoAnalysis/logs/scores.log 2>&1
+20 0 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_fragile_scores_v2.py >> /opt/CryptoAnalysis/logs/scores.log 2>&1
 ```
 
 ---

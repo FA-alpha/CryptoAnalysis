@@ -140,6 +140,30 @@ def resolve_snapshot_date(now: Optional[datetime] = None) -> date:
     return now.date()
 
 
+def get_fund_level_by_account_value(account_value: Decimal) -> Optional[str]:
+    """
+    根据 accountValue 映射资金等级。
+
+    等级规则（USD）：
+    - L1: [2,000, 5,000)
+    - L2: [5,000, 20,000)
+    - L3: [20,000, 50,000)
+    - L4: [50,000, 100,000)
+    - L5: [100,000, +inf)
+    """
+    if account_value >= Decimal("100000"):
+        return "L5"
+    if account_value >= Decimal("50000"):
+        return "L4"
+    if account_value >= Decimal("20000"):
+        return "L3"
+    if account_value >= Decimal("5000"):
+        return "L2"
+    if account_value >= Decimal("2000"):
+        return "L1"
+    return None
+
+
 def save_snapshot(address: str, state: Dict, pnl: Dict, snapshot_date: date) -> bool:
     """
     保存持仓快照到数据库
@@ -170,6 +194,7 @@ def save_snapshot(address: str, state: Dict, pnl: Dict, snapshot_date: date) -> 
         total_raw_usd_val = Decimal(str(margin.get('totalRawUsd', 0)))
         total_ntl_pos_val = Decimal(str(margin.get('totalNtlPos', 0)))
         withdrawable_val = Decimal(str(state.get('withdrawable', 0)))
+        fund_level = get_fund_level_by_account_value(account_value_val)
 
         # 检查该地址当天是否已有 snapshot_date 记录（定时任务 UPDATE，手动 INSERT IGNORE）
         cursor.execute('''
@@ -245,6 +270,14 @@ def save_snapshot(address: str, state: Dict, pnl: Dict, snapshot_date: date) -> 
                     Decimal(str(cum_funding.get('allTime', 0))),
                     Decimal(str(cum_funding.get('sinceOpen', 0)))
                 ))
+
+        # 同步更新地址主表资金分层与最新账户资产
+        cursor.execute('''
+            UPDATE hl_address_list
+            SET latest_account_value = %s,
+                fund_level = %s
+            WHERE address = %s
+        ''', (account_value_val, fund_level, address))
         
         conn.commit()
         return True
