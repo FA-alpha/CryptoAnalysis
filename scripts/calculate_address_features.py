@@ -29,6 +29,62 @@ TARGET_COINS = ('BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'ADA', 'HYPE', 'BCH', 'BNB')
 TARGET_COINS_PLACEHOLDER = ','.join(['%s'] * len(TARGET_COINS))
 
 
+def purge_address(address: str) -> None:
+    """
+    删除指定地址的所有相关数据
+    触发条件：该地址在主流币种下无平仓数据
+    删除顺序：先删子表，再删主表
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        # 1. 找到该地址的所有 snapshot_id
+        cursor.execute(
+            'SELECT id FROM hl_position_snapshots WHERE address = %s', (address,)
+        )
+        snapshot_ids = [row[0] for row in cursor.fetchall()]
+
+        # 2. 删除 hl_position_details
+        if snapshot_ids:
+            placeholders = ','.join(['%s'] * len(snapshot_ids))
+            cursor.execute(
+                f'DELETE FROM hl_position_details WHERE snapshot_id IN ({placeholders})',
+                snapshot_ids
+            )
+            print(f"   🗑️ 删除 hl_position_details: {cursor.rowcount} 条")
+
+        # 3. 删除其他表
+        for table in [
+            'hl_position_snapshots',
+            'hl_fills',
+            'hl_address_features',
+            'hl_fragile_scores',
+            'hl_ledger_updates',
+        ]:
+            cursor.execute(f'DELETE FROM {table} WHERE address = %s', (address,))
+            print(f"   🗑️ 删除 {table}: {cursor.rowcount} 条")
+
+        # 4. hl_address_list 不删除，改为 excluded 状态并记录原因
+        cursor.execute(
+            """UPDATE hl_address_list
+               SET status = 'excluded', excluded_reason = %s
+               WHERE address = %s""",
+            ('无主流币种交易数据（仅交易非 BTC/ETH/SOL/DOGE/XRP/ADA/HYPE/BCH/BNB 币种）', address)
+        )
+        print(f"   📝 hl_address_list 状态已改为 excluded")
+
+        conn.commit()
+        print(f"   ✅ 地址 {address} 已清除（地址保留，状态=excluded）")
+
+    except Exception as e:
+        conn.rollback()
+        print(f"   ❌ 清除失败: {e}")
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def get_active_addresses() -> List[str]:
     """获取所有活跃地址"""
     conn = get_connection()
@@ -73,7 +129,7 @@ def calculate_basic_stats(address: str, cursor) -> Optional[Dict]:
     win_rate = float(win_count) / float(total_close) * 100 if total_close else 0
     profit_loss_ratio = abs(float(avg_win or 0)) / abs(float(avg_loss or 1)) if avg_loss and avg_loss < 0 else 0
     days = (data_end - data_start) / 1000 / 86400 if data_end and data_start else 0
-    avg_trades_per_day = total_close / days if days > 0 else 0
+    avg_trades_per_day = total_close / days if days >= 1 else 0  # days < 1 时不计算，避免异常值
 
     return {
         'total_trades': int(total_close),
@@ -767,6 +823,8 @@ def main() -> None:
         try:
             features = calculate_features(address)
             if not features:
+                print(f"   ⚠️ 无主流币种数据，清除该地址...")
+                purge_address(address)
                 skip_count += 1
                 continue
             save_features(address, features)
