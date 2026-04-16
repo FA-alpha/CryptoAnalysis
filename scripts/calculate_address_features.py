@@ -798,6 +798,260 @@ def save_features(address: str, features: Dict) -> int:
         conn.close()
 
 
+def calculate_and_save_coin_features(address: str) -> int:
+    """
+    按币种分别计算特征并保存到 hl_coin_address_features
+    只统计有超过 MIN_COIN_TRADES 笔交易的币种
+    """
+    MIN_COIN_TRADES = 10
+    TARGET_COINS = ('BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'ADA', 'HYPE', 'BCH', 'BNB')
+    TIME_WINDOW_MS = 3600000  # 连续亏损判断窗口 1h
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    saved_count = 0
+
+    try:
+        for coin in TARGET_COINS:
+            # --- 基础统计 ---
+            cursor.execute('''
+                SELECT COUNT(*), 
+                       SUM(CASE WHEN closed_pnl > 0 THEN 1 ELSE 0 END),
+                       AVG(CASE WHEN closed_pnl > 0 THEN closed_pnl END),
+                       AVG(CASE WHEN closed_pnl < 0 THEN closed_pnl END),
+                       SUM(closed_pnl),
+                       MIN(time), MAX(time)
+                FROM hl_fills
+                WHERE address = %s AND coin = %s AND dir LIKE 'Close%%'
+            ''', (address, coin))
+            row = cursor.fetchone()
+            if not row or not row[0] or int(row[0]) < MIN_COIN_TRADES:
+                continue
+
+            total_close = int(row[0])
+            win_count = int(row[1] or 0)
+            avg_win = float(row[2] or 0)
+            avg_loss = float(row[3] or 0)
+            total_pnl = float(row[4] or 0)
+            data_start = row[5]
+            data_end = row[6]
+
+            win_rate = win_count / total_close * 100
+            profit_loss_ratio = abs(avg_win) / abs(avg_loss) if avg_loss < 0 else 0
+            days = (data_end - data_start) / 1000 / 86400 if data_end and data_start else 0
+            active_days = int(days)
+            months = days / 30 if days > 0 else 0
+
+            # --- 清算统计 ---
+            cursor.execute('''
+                SELECT COUNT(*) FROM hl_fills
+                WHERE address = %s AND coin = %s AND dir LIKE 'Liquidat%%'
+            ''', (address, coin))
+            official_liq = cursor.fetchone()[0] or 0
+
+            cursor.execute('''
+                SELECT COUNT(*) FROM hl_fills
+                WHERE address = %s AND coin = %s
+                  AND dir LIKE 'Close%%' AND closed_pnl < 0
+                  AND start_position > 0
+                  AND ABS(sz - ABS(start_position)) / NULLIF(ABS(start_position), 0) < 0.02
+                  AND ABS(closed_pnl) / NULLIF(ABS(sz * px), 0) >= 0.5
+            ''', (address, coin))
+            near_liq = cursor.fetchone()[0] or 0
+            liquidation_count = official_liq + near_liq
+            liq_per_month = liquidation_count / months if months > 0 else 0
+
+            # --- 追涨杀跌率 ---
+            cursor.execute('''
+                SELECT dir, time, sz, px, start_position
+                FROM hl_fills
+                WHERE address = %s AND coin = %s
+                  AND (dir LIKE 'Open%%' OR dir LIKE 'Close%%')
+                ORDER BY time
+            ''', (address, coin))
+            fills = cursor.fetchall()
+            side_fills = {'Long': [], 'Short': []}
+            for f in fills:
+                side = 'Long' if 'Long' in f[0] else 'Short'
+                side_fills[side].append(f)
+
+            total_cycles = chase_cycles = 0
+            for side, trades in side_fills.items():
+                i = 0
+                while i < len(trades):
+                    d, t, sz, px, sp = trades[i]
+                    if 'Open' in d and float(sp or 0) == 0:
+                        open_time = t
+                        avg_px = float(px)
+                        total_sz = float(sz)
+                        i += 1
+                        while i < len(trades):
+                            d2, t2, sz2, px2, sp2 = trades[i]
+                            if 'Open' in d2:
+                                # 判断追涨杀跌
+                                is_chase = (side == 'Long' and float(px2) > avg_px) or \
+                                           (side == 'Short' and float(px2) < avg_px)
+                                if is_chase:
+                                    chase_cycles += 1
+                                total_cycles += 1
+                                new_sz = total_sz + float(sz2)
+                                avg_px = (avg_px * total_sz + float(px2) * float(sz2)) / new_sz
+                                total_sz = new_sz
+                            elif 'Close' in d2:
+                                if abs(float(sp2 or 0)) <= float(sz2) * 1.05:
+                                    break
+                            i += 1
+                    else:
+                        i += 1
+            chase_rate = chase_cycles / total_cycles * 100 if total_cycles > 0 else 0
+
+            # --- 补仓模式 + 做T ---
+            from collections import defaultdict
+            by_dir = defaultdict(list)
+            for f in fills:
+                side = 'Long' if 'Long' in f[0] else 'Short'
+                by_dir[side].append(f)
+
+            all_refill_counts = []
+            scalping_count = 0
+            for side, trades in by_dir.items():
+                i = 0
+                while i < len(trades):
+                    d, t, sz, px, sp = trades[i]
+                    if 'Open' in d and float(sp or 0) == 0:
+                        refill = 0
+                        has_close = False
+                        i += 1
+                        while i < len(trades):
+                            d2, t2, sz2, px2, sp2 = trades[i]
+                            if 'Open' in d2:
+                                refill += 1
+                            elif 'Close' in d2:
+                                has_close = True
+                                if abs(float(sp2 or 0)) <= float(sz2) * 1.05:
+                                    if has_close and refill > 0:
+                                        scalping_count += 1
+                                    break
+                            i += 1
+                        all_refill_counts.append(refill)
+                    else:
+                        i += 1
+            avg_refill = sum(all_refill_counts) / len(all_refill_counts) if all_refill_counts else 0
+            is_excluded = 1 if scalping_count > 15 else 0
+
+            # --- 连续亏损后加仓 ---
+            cursor.execute('''
+                SELECT dir, closed_pnl, time FROM hl_fills
+                WHERE address = %s AND coin = %s ORDER BY time
+            ''', (address, coin))
+            coin_fills = cursor.fetchall()
+            consec_loss = 0
+            consec_add = 0
+            max_consec = 0
+            last_close_time = 0
+            last_close_dir = ''
+            for d, pnl, t in coin_fills:
+                if 'Close' in d:
+                    pnl_val = float(pnl or 0)
+                    is_same = (last_close_dir and d == last_close_dir and
+                               t - last_close_time < TIME_WINDOW_MS)
+                    if pnl_val < 0:
+                        if not is_same:
+                            consec_loss += 1
+                            max_consec = max(max_consec, consec_loss)
+                    else:
+                        consec_loss = 0
+                    last_close_dir = d
+                    last_close_time = t
+                elif 'Open' in d and consec_loss >= 2:
+                    consec_add += 1
+
+            # --- 平均持仓时长 ---
+            avg_holding_hours = Decimal('0')
+            holding_durations = []
+            side_map = defaultdict(list)
+            for f in fills:
+                side = 'Long' if 'Long' in f[0] else 'Short'
+                side_map[side].append(f)
+            for side, trades in side_map.items():
+                i = 0
+                while i < len(trades):
+                    d, t, sz, px, sp = trades[i]
+                    if 'Open' in d and float(sp or 0) == 0:
+                        open_time = t
+                        i += 1
+                        while i < len(trades):
+                            d2, t2, sz2, px2, sp2 = trades[i]
+                            if 'Close' in d2 and abs(float(sp2 or 0)) <= float(sz2) * 1.05:
+                                dur = (t2 - open_time) / 1000 / 3600
+                                if dur > 0:
+                                    holding_durations.append(dur)
+                                break
+                            i += 1
+                    else:
+                        i += 1
+            if holding_durations:
+                avg_holding_hours = Decimal(str(round(sum(holding_durations) / len(holding_durations), 2)))
+
+            # --- 存入数据库 ---
+            cursor.execute('''
+                INSERT INTO hl_coin_address_features (
+                    address, coin, calculated_at,
+                    total_trades, win_rate, avg_win_pnl, avg_loss_pnl,
+                    profit_loss_ratio, total_realized_pnl,
+                    liquidation_count, liquidation_per_month,
+                    avg_refill_count, scalping_count, is_excluded,
+                    consecutive_loss_add_count, max_consecutive_loss_count,
+                    chase_rate, avg_holding_hours, active_days
+                ) VALUES (
+                    %s, %s, NOW(),
+                    %s, %s, %s, %s,
+                    %s, %s,
+                    %s, %s,
+                    %s, %s, %s,
+                    %s, %s,
+                    %s, %s, %s
+                )
+                ON DUPLICATE KEY UPDATE
+                    total_trades=VALUES(total_trades), win_rate=VALUES(win_rate),
+                    avg_win_pnl=VALUES(avg_win_pnl), avg_loss_pnl=VALUES(avg_loss_pnl),
+                    profit_loss_ratio=VALUES(profit_loss_ratio),
+                    total_realized_pnl=VALUES(total_realized_pnl),
+                    liquidation_count=VALUES(liquidation_count),
+                    liquidation_per_month=VALUES(liquidation_per_month),
+                    avg_refill_count=VALUES(avg_refill_count),
+                    scalping_count=VALUES(scalping_count), is_excluded=VALUES(is_excluded),
+                    consecutive_loss_add_count=VALUES(consecutive_loss_add_count),
+                    max_consecutive_loss_count=VALUES(max_consecutive_loss_count),
+                    chase_rate=VALUES(chase_rate),
+                    avg_holding_hours=VALUES(avg_holding_hours),
+                    active_days=VALUES(active_days),
+                    calculated_at=NOW()
+            ''', (
+                address, coin,
+                total_close, round(win_rate, 2), round(avg_win, 6), round(avg_loss, 6),
+                round(profit_loss_ratio, 2), round(total_pnl, 6),
+                liquidation_count, round(liq_per_month, 2),
+                round(avg_refill, 2), scalping_count, is_excluded,
+                consec_add, max_consec,
+                round(chase_rate, 2), avg_holding_hours, active_days
+            ))
+            saved_count += 1
+
+        conn.commit()
+        if saved_count:
+            print(f"   📊 币种特征已保存（{saved_count}个币种）")
+        return saved_count
+
+    except Exception as e:
+        conn.rollback()
+        print(f"   ❌ 币种特征保存失败: {e}")
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def main() -> None:
     print("=" * 70)
     print("地址特征计算 v2（新评分模型）")
@@ -835,6 +1089,7 @@ def main() -> None:
                 continue
 
             save_features(address, features)
+            calculate_and_save_coin_features(address)
             success_count += 1
         except Exception as e:
             print(f"   ❌ {e}")

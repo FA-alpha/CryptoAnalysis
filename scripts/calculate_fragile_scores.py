@@ -463,6 +463,89 @@ def save_score(feature_id: int, address: str, score_result: Dict) -> int:
         conn.close()
 
 
+def get_coin_features(address: str = None) -> List[tuple]:
+    """获取最新单币种特征数据"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        if address:
+            cursor.execute('''
+                SELECT address, coin, total_trades,
+                       win_rate, profit_loss_ratio, liquidation_count, liquidation_per_month,
+                       avg_refill_count, scalping_count, is_excluded,
+                       consecutive_loss_add_count, max_consecutive_loss_count,
+                       chase_rate, avg_holding_hours
+                FROM hl_coin_address_features
+                WHERE address = %s
+                ORDER BY coin
+            ''', (address,))
+        else:
+            cursor.execute('''
+                SELECT f.address, f.coin, f.total_trades,
+                       f.win_rate, f.profit_loss_ratio, f.liquidation_count, f.liquidation_per_month,
+                       f.avg_refill_count, f.scalping_count, f.is_excluded,
+                       f.consecutive_loss_add_count, f.max_consecutive_loss_count,
+                       f.chase_rate, f.avg_holding_hours
+                FROM hl_coin_address_features f
+                INNER JOIN (
+                    SELECT address, coin, MAX(calculated_at) as max_time
+                    FROM hl_coin_address_features GROUP BY address, coin
+                ) latest ON f.address = latest.address AND f.coin = latest.coin
+                         AND f.calculated_at = latest.max_time
+            ''')
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def save_coin_score(address: str, coin: str, total_trades: int,
+                    score_result: Dict, margin_call_count: int) -> int:
+    """保存单币种评分到 hl_coin_fragile_scores"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT INTO hl_coin_fragile_scores (
+                address, coin, scored_at, total_trades,
+                total_score, fragile_level,
+                factor1_score, factor2_score, factor3_score,
+                factor4_score, factor5_score, factor6_score
+            ) VALUES (%s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (
+            address, coin, total_trades,
+            score_result['total_score'], score_result['fragile_level'],
+            score_result['factor1_score'], score_result['factor2_score'],
+            score_result['factor3_score'], score_result['factor4_score'],
+            margin_call_count,  # 因子五用整体追加保证金次数
+            score_result['factor6_score'],
+        ))
+        conn.commit()
+        return cursor.lastrowid
+    except Exception as e:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def get_margin_call_count(address: str) -> int:
+    """获取地址整体追加保证金次数"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT margin_call_count FROM hl_address_features
+            WHERE address = %s ORDER BY calculated_at DESC LIMIT 1
+        ''', (address,))
+        row = cursor.fetchone()
+        return int(row[0]) if row and row[0] else 0
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def main() -> None:
     print("=" * 70)
     print("脆弱地址评分计算 v2（新评分模型）")
@@ -484,11 +567,13 @@ def main() -> None:
     print(f"✅ {len(features_list)} 个地址\n")
 
     success_count = fail_count = 0
+    coin_success = coin_fail = 0
 
     for i, (feature_id, address, features) in enumerate(features_list, 1):
         print(f"\n[{i}/{len(features_list)}] {address}")
 
         try:
+            # --- 整体评分 ---
             result = calculate_score(features)
             score_id = save_score(feature_id, address, result)
 
@@ -511,10 +596,42 @@ def main() -> None:
             import traceback
             traceback.print_exc()
             fail_count += 1
+            continue
+
+        # --- 单币种评分 ---
+        try:
+            margin_call_count = features.get('margin_call_count', 0)
+            coin_rows = get_coin_features(address)
+            if coin_rows:
+                for row in coin_rows:
+                    addr, coin, total_trades = row[0], row[1], row[2]
+                    coin_features = {
+                        'win_rate':                   float(row[3] or 0),
+                        'profit_loss_ratio':          float(row[4] or 0),
+                        'liquidation_count':          int(row[5] or 0),
+                        'liquidation_per_month':      float(row[6] or 0),
+                        'avg_refill_count':           float(row[7] or 0),
+                        'scalping_count':             int(row[8] or 0),
+                        'is_excluded':                int(row[9] or 0),
+                        'consecutive_loss_add_count': int(row[10] or 0),
+                        'max_consecutive_loss_count': int(row[11] or 0),
+                        'chase_rate':                 float(row[12] or 0),
+                        'loss_concentration':         0,  # 单币种无意义
+                        'avg_holding_hours':          float(row[13] or 0),
+                        'margin_call_count':          margin_call_count,
+                    }
+                    coin_result = calculate_score(coin_features)
+                    save_coin_score(addr, coin, total_trades, coin_result, margin_call_count)
+                print(f"   📊 单币种评分已保存（{len(coin_rows)}个币种）")
+                coin_success += len(coin_rows)
+        except Exception as e:
+            print(f"   ⚠️ 单币种评分失败: {e}")
+            coin_fail += 1
 
     print("\n" + "=" * 70)
     print(f"完成! {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"  ✅ {success_count} | ❌ {fail_count} | 总计: {len(features_list)}")
+    print(f"  整体评分: ✅ {success_count} | ❌ {fail_count} | 总计: {len(features_list)}")
+    print(f"  单币种评分: ✅ {coin_success} | ❌ {coin_fail}")
     print("=" * 70)
 
 
