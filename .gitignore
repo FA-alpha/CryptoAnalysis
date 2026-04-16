@@ -35,3 +35,6 @@ logs/
 # 临时文件
 *.tmp
 *.bak
+ChatExport_*/
+data/
+
