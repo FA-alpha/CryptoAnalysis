@@ -36,11 +36,11 @@
   - `max_consecutive_loss_count` - 最长连续亏损笔数
 
 #### 脚本更新
-- ✅ `calculate_address_features_v2.py` - 连续亏损识别改为**方案D**：
+- ✅ `calculate_address_features.py` - 连续亏损识别改为**方案D**：
   - 同 coin + 同方向 + 1小时内的连续 Close，算同一次亏损事件
   - 中间有盈利 Close，归零计数
   - 同时统计最长连续亏损笔数
-- ✅ `calculate_fragile_scores_v2.py` - 新增最长连亏评分（5分）
+- ✅ `calculate_fragile_scores.py` - 新增最长连亏评分（5分）
 
 #### 评分体系变更
 - **心态特征**：20分 → **25分**
@@ -73,12 +73,12 @@
   - `total_score` 改为 DECIMAL(10,2)（支持小数和负分）
 
 #### 新脚本
-- ✅ `calculate_address_features_v2.py` - 新特征计算引擎
+- ✅ `calculate_address_features.py` - 新特征计算引擎
   - 杠杆改为账户整体杠杆（快照数据）
   - 清算识别：官方 + 近似清算（全仓平 + 亏损≥50%）
   - 连续亏损后加仓识别
   - 补仓行为识别
-- ✅ `calculate_fragile_scores_v2.py` - 新评分引擎
+- ✅ `calculate_fragile_scores.py` - 新评分引擎
   - 总分动态（理论 -10~120 分）
   - 仓位利用率引入补仓修正
   - 加仓/做T 双向计分（当前简化版返回 0）

@@ -12,8 +12,8 @@ scripts/
 ├── fetch_ledger_updates.py              # 充提记录采集（全量/增量自动判断）⭐ 日常使用
 ├── fetch_all_position_snapshots.py      # 批量获取持仓快照（含 PnL）⭐
 ├── fetch_position_snapshots.py          # 单地址持仓快照
-├── calculate_address_features_v2.py     # 地址特征计算 v2（当前使用）⭐
-├── calculate_fragile_scores_v2.py       # 脆弱地址评分 v2（当前使用）⭐
+├── calculate_address_features.py     # 地址特征计算 v2（当前使用）⭐
+├── calculate_fragile_scores.py       # 脆弱地址评分 v2（当前使用）⭐
 ├── calculate_address_features.py        # 地址特征计算 v1（已废弃）
 └── calculate_fragile_scores.py          # 脆弱地址评分 v1（已废弃）
 ```
@@ -550,7 +550,7 @@ python scripts/fetch_ledger_updates.py 0xdeeacd0aaffb70edd79f410a37c8b20e0a7fcd6
 
 ---
 
-## 9. calculate_address_features_v2.py（特征计算 v2）⭐
+## 9. calculate_address_features.py（特征计算 v2）⭐
 
 ### 功能说明
 
@@ -578,15 +578,15 @@ python scripts/fetch_ledger_updates.py 0xdeeacd0aaffb70edd79f410a37c8b20e0a7fcd6
 
 ```bash
 # 批量模式
-python scripts/calculate_address_features_v2.py
+python scripts/calculate_address_features.py
 
 # 单地址模式
-python scripts/calculate_address_features_v2.py 0xdeeacd0aaffb70edd79f410a37c8b20e0a7fcd65
+python scripts/calculate_address_features.py 0xdeeacd0aaffb70edd79f410a37c8b20e0a7fcd65
 ```
 
 ---
 
-## 10. calculate_fragile_scores_v2.py（评分 v2）⭐
+## 10. calculate_fragile_scores.py（评分 v2）⭐
 
 ### 功能说明
 
@@ -616,10 +616,10 @@ python scripts/calculate_address_features_v2.py 0xdeeacd0aaffb70edd79f410a37c8b2
 
 ```bash
 # 批量模式
-python scripts/calculate_fragile_scores_v2.py
+python scripts/calculate_fragile_scores.py
 
 # 单地址模式
-python scripts/calculate_fragile_scores_v2.py 0xdeeacd0aaffb70edd79f410a37c8b20e0a7fcd65
+python scripts/calculate_fragile_scores.py 0xdeeacd0aaffb70edd79f410a37c8b20e0a7fcd65
 ```
 
 ---
