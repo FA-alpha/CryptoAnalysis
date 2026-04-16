@@ -53,12 +53,10 @@ def purge_address(address: str, reason: str = '无主流币种交易数据') -> 
             )
             print(f"   🗑️ 删除 hl_position_details: {cursor.rowcount} 条")
 
-        # 3. 删除其他表
+        # 3. 删除其他表（hl_address_features/hl_fragile_scores 保留供分析）
         for table in [
             'hl_position_snapshots',
             'hl_fills',
-            'hl_address_features',
-            'hl_fragile_scores',
             'hl_ledger_updates',
         ]:
             cursor.execute(f'DELETE FROM {table} WHERE address = %s', (address,))
