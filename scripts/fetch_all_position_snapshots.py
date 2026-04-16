@@ -320,7 +320,7 @@ def main():
         
         # 获取持仓状态
         state = fetch_clearinghouse_state(address)
-        # 无需额外 sleep，API 请求本身已有 ~1s 延迟，不会触发限流
+        time.sleep(0.5)  # 避免 429 限流
         
         if not state:
             print(f"   ⚠️ 无持仓数据或获取失败")
