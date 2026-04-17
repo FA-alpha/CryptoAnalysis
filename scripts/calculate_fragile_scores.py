@@ -34,7 +34,8 @@ def get_latest_features(address: str = None) -> List[tuple]:
                        total_realized_pnl, coin_concentration,
                        profit_loss_ratio, liquidation_count,
                        avg_refill_count, scalping_count, is_excluded,
-                       chase_rate, loss_concentration, avg_holding_hours, margin_call_count
+                       chase_rate, loss_concentration, avg_holding_hours, margin_call_count,
+                       recent_7d_trades
                 FROM hl_address_features
             '''
         if address:
@@ -49,7 +50,8 @@ def get_latest_features(address: str = None) -> List[tuple]:
                        f.total_realized_pnl, f.coin_concentration,
                        f.profit_loss_ratio, f.liquidation_count,
                        f.avg_refill_count, f.scalping_count, f.is_excluded,
-                       f.chase_rate, f.loss_concentration, f.avg_holding_hours, f.margin_call_count
+                       f.chase_rate, f.loss_concentration, f.avg_holding_hours, f.margin_call_count,
+                       f.recent_7d_trades
                 FROM hl_address_features f
                 INNER JOIN (
                     SELECT address, MAX(calculated_at) as max_time
@@ -83,6 +85,7 @@ def get_latest_features(address: str = None) -> List[tuple]:
                 'loss_concentration':           float(vals[17] or 0),
                 'avg_holding_hours':            float(vals[18] or 0),
                 'margin_call_count':            int(vals[19] or 0),
+                'recent_7d_trades':             int(vals[20] or 0),
             }
             result.append((feature_id, addr, features))
 
@@ -573,6 +576,12 @@ def main() -> None:
         print(f"\n[{i}/{len(features_list)}] {address}")
 
         try:
+            # --- 近7天活跃度过滤 ---
+            recent_7d = features.get('recent_7d_trades', 0)
+            if recent_7d < 5:
+                print(f"   ⏭️ 跳过（近7天交易笔数={recent_7d} < 5，地址不活跃）")
+                continue
+
             # --- 整体评分 ---
             result = calculate_score(features)
             score_id = save_score(feature_id, address, result)

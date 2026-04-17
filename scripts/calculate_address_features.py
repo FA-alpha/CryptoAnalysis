@@ -614,6 +614,28 @@ def calculate_chase_rate_and_loss_concentration(address: str, cursor) -> Dict:
     }
 
 
+def calculate_recent_7d_trades(address: str, cursor) -> Dict:
+    """
+    计算近7天白名单币种 Close 交易笔数
+
+    Returns:
+        {'recent_7d_trades': int}
+    """
+    print(f"   📅 近7天交易笔数...")
+
+    cursor.execute('''
+        SELECT COUNT(*) FROM hl_fills
+        WHERE address = %s
+          AND dir LIKE 'Close%%'
+          AND coin IN ({TARGET_COINS_PLACEHOLDER})
+          AND time >= (UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY) * 1000)
+    '''.format(TARGET_COINS_PLACEHOLDER=TARGET_COINS_PLACEHOLDER), (address, *TARGET_COINS))
+
+    count = cursor.fetchone()[0] or 0
+    print(f"      近7天 Close 笔数: {count}")
+    return {'recent_7d_trades': int(count)}
+
+
 def calculate_margin_call_count(address: str, cursor) -> Dict:
     """
     追加保证金次数
@@ -710,8 +732,9 @@ def calculate_features(address: str) -> Optional[Dict]:
         refill_v3 = calculate_refill_and_scalping(address, cursor)
         chase_v3 = calculate_chase_rate_and_loss_concentration(address, cursor)
         margin_call = calculate_margin_call_count(address, cursor)
+        recent_7d = calculate_recent_7d_trades(address, cursor)
 
-        features = {**basic, **leverage, **liquidation, **refill, **consecutive_loss, **add_score, **scalping, **other, **holding, **refill_v3, **chase_v3, **margin_call}
+        features = {**basic, **leverage, **liquidation, **refill, **consecutive_loss, **add_score, **scalping, **other, **holding, **refill_v3, **chase_v3, **margin_call, **recent_7d}
 
         print(f"   ✅ 完成")
         print(f"      胜率: {features['win_rate']}% | 杠杆: {features['avg_leverage']}x | 清算/月: {features['liquidation_per_month']}")
@@ -749,7 +772,7 @@ def save_features(address: str, features: Dict) -> int:
                 add_position_score, scalping_score,
                 active_days, avg_trades_per_day, last_trade_time,
                 avg_holding_hours, avg_refill_count, scalping_count, is_excluded,
-                chase_rate, loss_concentration, margin_call_count
+                chase_rate, loss_concentration, margin_call_count, recent_7d_trades
             ) VALUES (
                 %s, NOW(),
                 %s, %s,
@@ -761,7 +784,7 @@ def save_features(address: str, features: Dict) -> int:
                 %s, %s, %s,
                 %s, %s,
                 %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s
             )
         ''', (
             address,
@@ -781,6 +804,7 @@ def save_features(address: str, features: Dict) -> int:
             features.get('chase_rate', Decimal('0')),
             features.get('loss_concentration', Decimal('0')),
             features.get('margin_call_count', 0),
+            features.get('recent_7d_trades', 0),
         ))
 
         conn.commit()

@@ -47,6 +47,7 @@ CREATE TABLE `hl_address_features` (
   `loss_concentration` decimal(5,2) DEFAULT NULL COMMENT '单一币种亏损集中度(%)',
   `avg_holding_hours` decimal(10,2) DEFAULT NULL COMMENT '平均持仓时长(小时)',
   `margin_call_count` int DEFAULT '0' COMMENT '追加保证金次数',
+  `recent_7d_trades` int NOT NULL DEFAULT '0' COMMENT '近7天白名单币种交易笔数（Close）',
   PRIMARY KEY (`id`),
   KEY `idx_address_time` (`address`,`calculated_at` DESC),
   KEY `idx_calculated_at` (`calculated_at`)
