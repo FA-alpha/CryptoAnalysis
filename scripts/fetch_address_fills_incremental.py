@@ -53,58 +53,115 @@ def get_last_fill_time(address: str) -> Optional[int]:
         conn.close()
 
 
-def fetch_fills_incremental(address: str, start_time: Optional[int] = None) -> List[Dict]:
+# userFillsByTime 单次返回上限（raw fills），超过此数则需要分页
+FILLS_PAGE_LIMIT = 2000
+
+
+def fetch_fills_by_time_paged(address: str, start_time: int, end_time: Optional[int] = None) -> List[Dict]:
     """
-    获取 fills（聚合模式）
+    用 userFillsByTime 分页拉取，自动处理 2000 条上限。
+    使用 aggregateByTime=True 减少条数，但仍以返回条数是否达到上限作为分页依据。
 
     Args:
         address: 钱包地址
-        start_time: 起始时间戳（毫秒）；None 则全量获取最近 2000 条
+        start_time: 起始时间戳（毫秒，包含）
+        end_time: 结束时间戳（毫秒，可选）
+
+    Returns:
+        所有 fills 列表（已去重、按时间升序）
+    """
+    all_fills: List[Dict] = []
+    seen_tids: set = set()
+    current_start = start_time
+    page = 0
+
+    while True:
+        page += 1
+        payload: Dict = {
+            'type': 'userFillsByTime',
+            'user': address,
+            'startTime': current_start,
+            'aggregateByTime': True,
+        }
+        if end_time is not None:
+            payload['endTime'] = end_time
+
+        try:
+            resp = httpx.post(
+                HYPERLIQUID_API_URL,
+                json=payload,
+                headers={'Content-Type': 'application/json'},
+                timeout=30.0
+            )
+            resp.raise_for_status()
+            batch: List[Dict] = resp.json()
+        except Exception as e:
+            print(f"❌ 第 {page} 页请求失败: {e}")
+            break
+
+        if not batch:
+            break
+
+        # 去重并收集
+        new_count = 0
+        for fill in batch:
+            tid = fill.get('tid')
+            if tid not in seen_tids:
+                seen_tids.add(tid)
+                all_fills.append(fill)
+                new_count += 1
+
+        print(f"   第 {page} 页: 返回 {len(batch)} 条，新增 {new_count} 条（累计 {len(all_fills)} 条）")
+
+        # 返回条数未达上限 → 已拉完
+        if len(batch) < FILLS_PAGE_LIMIT:
+            break
+
+        # 达到上限 → 以最后一条时间作为下一页起点（+1ms 避免重复）
+        batch.sort(key=lambda x: x.get('time', 0))
+        last_time = batch[-1].get('time', 0)
+        if last_time <= current_start:
+            # 防止死循环
+            print(f"⚠️ 分页时间未推进（last_time={last_time}），停止分页")
+            break
+        current_start = last_time + 1
+        time.sleep(0.5)  # 避免限流
+
+    return all_fills
+
+
+def fetch_fills_incremental(address: str, start_time: Optional[int] = None) -> List[Dict]:
+    """
+    获取 fills（聚合模式，支持分页）
+
+    Args:
+        address: 钱包地址
+        start_time: 起始时间戳（毫秒）；None 则全量从头拉取所有历史
     """
     print(f"\n📥 正在获取地址交易数据（aggregateByTime=True）...")
     print(f"   地址: {address}")
 
     try:
         if start_time:
-            # 增量模式：从上次最新时间开始获取
-            # 不加 1ms，因为聚合后同一时间的数据可能有更新
+            # 增量模式：从上次最新时间开始，分页拉取
             print(f"   模式: 增量（起始时间: {datetime.fromtimestamp(start_time/1000).strftime('%Y-%m-%d %H:%M:%S')}）")
-            resp = httpx.post(
-                HYPERLIQUID_API_URL,
-                json={
-                    'type': 'userFillsByTime',
-                    'user': address,
-                    'startTime': start_time,
-                    'aggregateByTime': True
-                },
-                headers={'Content-Type': 'application/json'},
-                timeout=30.0
-            )
+            fills = fetch_fills_by_time_paged(address, start_time=start_time)
         else:
-            # 全量模式：获取最近 2000 条
-            print(f"   模式: 全量获取（最近 2000 条）")
-            resp = httpx.post(
-                HYPERLIQUID_API_URL,
-                json={
-                    'type': 'userFills',
-                    'user': address,
-                    'aggregateByTime': True
-                },
-                headers={'Content-Type': 'application/json'},
-                timeout=30.0
-            )
+            # 全量模式：从 2020-01-01 开始分页拉取所有历史
+            # 注意：不能用 userFills，它只返回最近 2000 条（raw），历史数据会被截断
+            full_start = int(datetime(2020, 1, 1).timestamp() * 1000)
+            print(f"   模式: 全量（从 2020-01-01 开始分页拉取所有历史）")
+            fills = fetch_fills_by_time_paged(address, start_time=full_start)
 
-        resp.raise_for_status()
-        fills = resp.json()
-
-        print(f"✅ 成功获取 {len(fills)} 条 fills")
+        print(f"✅ 共获取 {len(fills)} 条 fills")
 
         if fills:
             fills.sort(key=lambda x: x.get('time', 0))
-            print(f"\n=== 新数据示例（前 3 条）===")
-            for i, fill in enumerate(fills[:3], 1):
-                dt = datetime.fromtimestamp(fill.get('time', 0) / 1000)
-                print(f"[{i}] {dt.strftime('%Y-%m-%d %H:%M:%S')} | {fill.get('coin')} | {fill.get('dir')} | 数量:{fill.get('sz')} | PnL:{fill.get('closedPnl', 0)}")
+            print(f"\n=== 数据概览 ===")
+            dt_first = datetime.fromtimestamp(fills[0].get('time', 0) / 1000)
+            dt_last = datetime.fromtimestamp(fills[-1].get('time', 0) / 1000)
+            print(f"   最早: {dt_first.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"   最新: {dt_last.strftime('%Y-%m-%d %H:%M:%S')}")
 
         return fills
 
