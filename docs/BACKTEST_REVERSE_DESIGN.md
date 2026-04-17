@@ -34,11 +34,9 @@
 
 ```
 fourieralpha_strategy/
-├── strategy/
-│   └── hl_reverse_strategy.py      # 新增：反向跟单策略类（实现 trades/daily_trades 输出）
 ├── backtest/
 │   └── hl_reverse_backtest_engine.py  # 新增：反向跟单回测引擎（不依赖 K 线）
-└── backtrack.py                     # 新增一个路由 /hl_reverse_backtest
+└── backtrack.py                        # 新增一个路由 /hl_reverse_backtest
 ```
 
 数据库连接新增一个指向 `fourieralpha_hl` 的配置，与现有 `DB_CONFIG` 并列：
@@ -180,63 +178,81 @@ capital += net_pnl
 
 ```python
 {
-    'date':        '2025-01-01',
-    'time':        '2025-01-01_10:30:00',
-    'symbol':      'BTC',
-    'action':      'BUY' / 'SELL',        # 开仓=BUY，平仓=SELL
-    'price':       106000.0,
-    'quantity':    0.01,
-    'revenue':     1060.0,
-    'amount':      9800.0,                 # 当前剩余资金
+    'date':          '2025-01-01',
+    'time':          '2025-01-01_10:30:00',
+    'symbol':        'BTC',
+    'action':        'BUY' / 'SELL',     # 开仓=BUY，平仓=SELL
+    'price':         106000.0,
+    'quantity':      0.01,
+    'revenue':       1060.0,
+    'amount':        9800.0,             # 当前账户总净资产
     'amount_change': -200.0,
-    'position':    1060.0,                 # 当前持仓价值
-    'avg_price':   106000.0,
-    'grids':       0,
-    'profit':      50.0,                   # 本笔盈亏（开仓为0）
-    'reason':      'HL反向跟单 0xaa08.../BTC',
-    'grid_level':  0,
-    'is_stop_loss': '否',
-    'fee_amt':     0.5,
-    # 扩展字段（不影响现有展示）
+    'position':      1060.0,             # 当前持仓价值
+    'avg_price':     106000.0,
+    'grids':         0,
+    'profit':        50.0,               # 本笔盈亏（开仓为0，平仓有值）
+    'reason':        'HL反向跟单 0xaa08.../BTC',
+    'grid_level':    0,
+    'is_stop_loss':  '否',
+    'fee_amt':       0.5,
+    # 扩展字段
     'source_address': '0xaa08...',
     'source_dir':     'Open Long',
 }
 ```
 
+---
+
 ## 六、daily_trades 格式（与现有框架一致）
+
+净资产定义：**所有币种已实现盈亏 + 未平仓按最新成交价估算浮盈亏 + 剩余现金 = 当日净资产**
 
 ```python
 {
     '日期':       '2025-01-01',
-    '当日净资产':  10050.0,
-    '单位净值':    1.005,
-    # 各 target 的当日净资产（前缀区分）
-    '0_BTC_当日净资产':  5025.0,
-    '1_ETH_当日净资产':  5025.0,
+    '当日净资产':  10050.0,    # 总净资产（所有 target 汇总，不拆分）
+    '单位净值':    1.005,      # 当日净资产 / 初始资金
+    '当日盈亏':    50.0,       # 当日已实现盈亏
+    '当日手续费':  2.0,        # 当日手续费合计
+    '当日交易笔数': 3,         # 当日开关仓笔数
 }
 ```
+
+---
 
 ## 七、metrics 格式（与现有框架一致）
 
 ```python
 {
     'total': {
-        'last_amt':         11500.0,   # 最终净值
-        'profit':           1500.0,    # 总盈亏
-        'profit_rate':      15.0,      # 收益率(%)
-        'win_rate':         0.62,      # 胜率
+        'last_amt':          11500.0,  # 最终净值
+        'profit':            1500.0,   # 总盈亏
+        'profit_rate':       15.0,     # 收益率(%)
+        'win_rate':          0.62,     # 胜率
         'profit_loss_ratio': 1.8,      # 盈亏比
-        'max_drawdown':     0.12,      # 最大回撤
-        'sharpe_ratio':     1.3,       # 夏普比率
-        'trade_count':      45,        # 总交易次数
-        'total_fee':        22.5,      # 总手续费
+        'max_drawdown':      0.12,     # 最大回撤
+        'sharpe_ratio':      1.3,      # 夏普比率
+        'trade_count':       45,       # 总交易次数（开+平）
+        'total_fee':         22.5,     # 总手续费
     }
 }
 ```
 
 ---
 
-## 八、开发步骤（给 Agent 的实现顺序）
+## 八、avg_refill_count 说明（每笔投入金额计算依据）
+
+回测中 `order_size` 是每次开仓固定投入金额。但如果要模拟"按地址真实加仓行为分配资金"，可参考：
+
+- **来源字段**：`hl_coin_address_features.avg_refill_count`（按币种维度，比整体更精准）
+- **含义**：该地址该币种每个持仓周期平均额外加仓次数（**不含首次开仓**）
+- **使用方式**：`总投入 = order_size * (1 + avg_refill_count)`，可用于估算单个周期占用资金上限，合理设置 `order_size`
+
+例如：`avg_refill_count = 2`，每次开仓准备 3 倍 `order_size` 的资金应对加仓。
+
+---
+
+## 九、开发步骤（给 Agent 的实现顺序）
 
 1. **`config/settings.py`**：新增 `HL_DB_CONFIG`
 
@@ -255,12 +271,12 @@ capital += net_pnl
 4. **注意事项**：
    - `start_position` 为 0 或 NULL 时，按全仓平仓处理（ratio=1.0）
    - 回测结束时有未平仓位，按最后一条 fill 的 `px` 强制平仓，`reason='强制平仓（回测结束）'`
-   - 多个 target 的资金共享同一个 `capital` 池，任意一个亏完则停止回测
-   - `daily_trades` 每日结算时间以北京时间 00:00 为界
+   - 多个 target 资金共享同一个 `capital` 池
+   - `daily_trades` 每日结算以北京时间 00:00 为界
 
 ---
 
-## 九、不需要实现的部分（现有框架已有）
+## 十、不需要实现的部分（现有框架已有）
 
 - Excel / CSV 保存逻辑 → 复用 `backtrack.py` 现有代码
 - 结果保存到数据库 → 复用 `db_four_service.save_backtest_result()`
