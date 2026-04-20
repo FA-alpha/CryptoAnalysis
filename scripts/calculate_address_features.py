@@ -1016,6 +1016,14 @@ def calculate_and_save_coin_features(address: str) -> int:
             if holding_durations:
                 avg_holding_hours = Decimal(str(round(sum(holding_durations) / len(holding_durations), 2)))
 
+            # --- 近7天交易笔数（Open+Close）---
+            cursor.execute('''
+                SELECT COUNT(*) FROM hl_fills
+                WHERE address = %s AND coin = %s
+                  AND time >= (UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY) * 1000)
+            ''', (address, coin))
+            recent_7d_trades = int(cursor.fetchone()[0] or 0)
+
             # --- 存入数据库 ---
             cursor.execute('''
                 INSERT INTO hl_coin_address_features (
@@ -1025,7 +1033,7 @@ def calculate_and_save_coin_features(address: str) -> int:
                     liquidation_count, liquidation_per_month,
                     avg_refill_count, scalping_count, is_excluded,
                     consecutive_loss_add_count, max_consecutive_loss_count,
-                    chase_rate, avg_holding_hours, active_days
+                    chase_rate, avg_holding_hours, active_days, recent_7d_trades
                 ) VALUES (
                     %s, %s, NOW(),
                     %s, %s, %s, %s,
@@ -1033,7 +1041,7 @@ def calculate_and_save_coin_features(address: str) -> int:
                     %s, %s,
                     %s, %s, %s,
                     %s, %s,
-                    %s, %s, %s
+                    %s, %s, %s, %s
                 )
                 ON DUPLICATE KEY UPDATE
                     total_trades=VALUES(total_trades), win_rate=VALUES(win_rate),
@@ -1049,6 +1057,7 @@ def calculate_and_save_coin_features(address: str) -> int:
                     chase_rate=VALUES(chase_rate),
                     avg_holding_hours=VALUES(avg_holding_hours),
                     active_days=VALUES(active_days),
+                    recent_7d_trades=VALUES(recent_7d_trades),
                     calculated_at=NOW()
             ''', (
                 address, coin,
@@ -1057,7 +1066,7 @@ def calculate_and_save_coin_features(address: str) -> int:
                 liquidation_count, round(liq_per_month, 2),
                 round(avg_refill, 2), scalping_count, is_excluded,
                 consec_add, max_consec,
-                round(chase_rate, 2), avg_holding_hours, active_days
+                round(chase_rate, 2), avg_holding_hours, active_days, recent_7d_trades
             ))
             saved_count += 1
 
