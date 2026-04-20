@@ -616,7 +616,7 @@ def calculate_chase_rate_and_loss_concentration(address: str, cursor) -> Dict:
 
 def calculate_recent_7d_trades(address: str, cursor) -> Dict:
     """
-    计算近7天白名单币种 Close 交易笔数
+    计算近7天白名单币种交易笔数（Open + Close 均统计）
 
     Returns:
         {'recent_7d_trades': int}
@@ -626,13 +626,12 @@ def calculate_recent_7d_trades(address: str, cursor) -> Dict:
     cursor.execute('''
         SELECT COUNT(*) FROM hl_fills
         WHERE address = %s
-          AND dir LIKE 'Close%%'
           AND coin IN ({TARGET_COINS_PLACEHOLDER})
           AND time >= (UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY) * 1000)
     '''.format(TARGET_COINS_PLACEHOLDER=TARGET_COINS_PLACEHOLDER), (address, *TARGET_COINS))
 
     count = cursor.fetchone()[0] or 0
-    print(f"      近7天 Close 笔数: {count}")
+    print(f"      近7天交易笔数: {count}")
     return {'recent_7d_trades': int(count)}
 
 
