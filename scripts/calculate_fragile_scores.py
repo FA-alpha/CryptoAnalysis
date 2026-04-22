@@ -504,7 +504,7 @@ def get_coin_features(address: str = None) -> List[tuple]:
 
 def save_coin_score(address: str, coin: str, total_trades: int,
                     score_result: Dict, margin_call_count: int) -> int:
-    """保存单币种评分到 hl_coin_fragile_scores"""
+    """保存单币种评分到 hl_coin_fragile_scores（当天已有记录则 UPDATE）"""
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -515,6 +515,17 @@ def save_coin_score(address: str, coin: str, total_trades: int,
                 factor1_score, factor2_score, factor3_score,
                 factor4_score, factor5_score, factor6_score
             ) VALUES (%s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                scored_at      = VALUES(scored_at),
+                total_trades   = VALUES(total_trades),
+                total_score    = VALUES(total_score),
+                fragile_level  = VALUES(fragile_level),
+                factor1_score  = VALUES(factor1_score),
+                factor2_score  = VALUES(factor2_score),
+                factor3_score  = VALUES(factor3_score),
+                factor4_score  = VALUES(factor4_score),
+                factor5_score  = VALUES(factor5_score),
+                factor6_score  = VALUES(factor6_score)
         ''', (
             address, coin, total_trades,
             score_result['total_score'], score_result['fragile_level'],
