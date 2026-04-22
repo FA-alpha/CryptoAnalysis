@@ -558,6 +558,8 @@ python scripts/fetch_ledger_updates.py 0xdeeacd0aaffb70edd79f410a37c8b20e0a7fcd6
 
 **仅统计主流币种**：BTC/ETH/SOL/DOGE/XRP/ADA/HYPE/BCH/BNB（剔除小币种）
 
+> `recent_7d_trades` 字段同样只统计上述白名单币种的近7天交易笔数（Open+Close 均计入）。只交易非白名单币种的地址该值为 0，在评分脚本中会被跳过（< 5 笔不评分），属于预期行为。
+
 ### 计算的特征
 
 | 特征 | 说明 |
@@ -611,6 +613,8 @@ python scripts/calculate_address_features.py 0xdeeacd0aaffb70edd79f410a37c8b20e0
 | L2 | ≥70 | 高度脆弱 |
 | L3 | ≥50 | 中度脆弱 |
 | L4 | <50 | 低风险 |
+
+> 注：评分脚本文件头注释中的旧等级划分（≥80/≥60/≥40）已过时，实际代码执行的是 ≥85/≥70/≥50。
 
 ### 使用方式
 
