@@ -624,4 +624,11 @@ python scripts/calculate_fragile_scores.py 0xdeeacd0aaffb70edd79f410a37c8b20e0a7
 
 ---
 
-**最后更新**: 2026-04-16（新增 fetch_ledger_updates.py；更新特征计算和评分为 v2；主流币种过滤；追加保证金因子五实现）
+**最后更新**: 2026-04-22
+
+### 变更记录
+
+| 日期 | 变更内容 |
+|------|----------|
+| 2026-04-22 | `calculate_fragile_scores.py` - `save_coin_score` 改为 `INSERT ... ON DUPLICATE KEY UPDATE`，防止重复写入 `hl_coin_fragile_scores`；数据库新增唯一索引 `uq_address_coin_date(address, coin, scored_date)`；清理存量重复数据 75,451 条 |
+| 2026-04-16 | 新增 `fetch_ledger_updates.py`；更新特征计算和评分为 v2；主流币种过滤；追加保证金因子五实现 |
