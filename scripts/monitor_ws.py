@@ -360,9 +360,9 @@ async def run_ws_shard(shard_id: int, addresses: List[str],
             logger.info(f"[分片{shard_id}] 连接 WebSocket... ({len(addresses)} 个地址)")
             async with websockets.connect(
                 WS_URL,
-                ping_interval=30,     # 每 30s 发送 ping
-                ping_timeout=60,      # 60s 内没收到 pong 才断连
+                ping_interval=None,   # 禁用库自带 ping，Hyperliquid 不支持标准 ping frame
                 close_timeout=5,
+                open_timeout=10,
             ) as ws:
                 logger.info(f"[分片{shard_id}] 连接成功，发送订阅请求...")
 
@@ -381,6 +381,18 @@ async def run_ws_shard(shard_id: int, addresses: List[str],
 
                 confirmed = 0
                 logger.info(f"[分片{shard_id}] 订阅请求发送完毕，等待推送...")
+
+                # 应用层心跟：每 30s 发送 {"method": "ping"}
+                async def heartbeat():
+                    while True:
+                        await asyncio.sleep(30)
+                        try:
+                            await ws.send(json.dumps({"method": "ping"}))
+                            logger.debug(f"[分片{shard_id}] 心跟 → ping")
+                        except Exception:
+                            break
+
+                hb_task = asyncio.create_task(heartbeat())
 
                 async for raw in ws:
                     # Hyperliquid 心跟：服务端会发送文本 "ping"
@@ -429,6 +441,11 @@ async def run_ws_shard(shard_id: int, addresses: List[str],
             logger.warning(f"[分片{shard_id}] 连接异常断开: code={e.code} reason={e.reason}，{RECONNECT_DELAY_SEC}s 后重连...")
         except Exception as e:
             logger.error(f"[分片{shard_id}] 异常: {type(e).__name__}: {e}，{RECONNECT_DELAY_SEC}s 后重连...", exc_info=True)
+        finally:
+            try:
+                hb_task.cancel()
+            except Exception:
+                pass
 
         await asyncio.sleep(RECONNECT_DELAY_SEC)
 
