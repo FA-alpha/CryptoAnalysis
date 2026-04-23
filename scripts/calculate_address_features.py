@@ -91,7 +91,7 @@ def get_active_addresses() -> List[str]:
         cursor.execute('''
             SELECT address FROM hl_address_list
             WHERE status = 'active'
-            ORDER BY last_updated_at DESC
+            ORDER BY created_at ASC
         ''')
         return [row[0] for row in cursor.fetchall()]
     finally:
