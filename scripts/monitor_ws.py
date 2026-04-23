@@ -433,6 +433,18 @@ async def run_ws_shard(shard_id: int, addresses: List[str],
 # 主流程
 # ============================================================
 
+async def send_lark_text(text: str) -> None:
+    """发送纯文本飞书消息"""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(LARK_WEBHOOK, json={
+                'msg_type': 'text',
+                'content': {'text': text}
+            })
+    except Exception as e:
+        logger.error(f"飞书发送失败: {e}")
+
+
 async def main() -> None:
     logger.info("=" * 60)
     logger.info("WebSocket 实时监控服务启动")
@@ -459,6 +471,7 @@ async def main() -> None:
         asyncio.create_task(refresh_loop()),
     ]
 
+    await send_lark_text(f"✅ 监控服务已启动\n监控地址: {len(addresses)} 个\n币种+地址组合: {sum(len(v['coins']) for v in pool.values())} 个\n等待实时 fill 推送...")
     logger.info(f"✅ 监控服务运行中（Ctrl+C 停止）")
 
     try:
