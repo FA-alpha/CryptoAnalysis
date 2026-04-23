@@ -7,13 +7,13 @@
   3. 所有变更写入 hl_pool_change_logs
 
 入池条件（同时满足）：
-  - hl_fragile_scores 最新评分 L1、L2 或 L3
+  - hl_coin_fragile_scores 最新币种级评分 L1、L2 或 L3
   - hl_position_snapshots 最新快照 pnl_all_time < 0（总亏损）
   - hl_position_snapshots 最新快照 pnl_month < 0（近30天亏损）
   - hl_coin_address_features 最新 recent_7d_trades > 10（单币近7天活跃）
 
 出池条件（满足任一）：
-  - 整体评分降至 L3/L4
+  - 该币种级评分降至 L4
   - 该币种 recent_7d_trades <= 10
   - hl_address_list.status = 'excluded'
 
@@ -51,6 +51,7 @@ MIN_RECENT_7D_TRADES = 10
 def get_eligible_candidates() -> List[Tuple]:
     """
     查询满足入池条件的地址+币种组合。
+    评分来源：hl_coin_fragile_scores（币种级）
 
     Returns:
         List of (address, coin, label, fragile_level, total_score,
@@ -62,22 +63,22 @@ def get_eligible_candidates() -> List[Tuple]:
         cursor.execute('''
             SELECT
                 al.address,
-                cf.coin,
+                cfs.coin,
                 al.label,
-                fs.fragile_level,
-                fs.total_score,
+                cfs.fragile_level,
+                cfs.total_score,
                 ps.pnl_all_time,
                 ps.pnl_month,
                 cf.recent_7d_trades
             FROM hl_address_list al
 
-            -- 最新整体评分 L1/L2/L3
+            -- 最新币种级评分 L1/L2/L3（来自 hl_coin_fragile_scores）
             INNER JOIN (
-                SELECT address, fragile_level, total_score,
-                       ROW_NUMBER() OVER (PARTITION BY address ORDER BY scored_at DESC) AS rn
-                FROM hl_fragile_scores
-            ) fs ON fs.address = al.address AND fs.rn = 1
-                 AND fs.fragile_level IN ('L1', 'L2', 'L3')
+                SELECT address, coin, fragile_level, total_score,
+                       ROW_NUMBER() OVER (PARTITION BY address, coin ORDER BY scored_at DESC) AS rn
+                FROM hl_coin_fragile_scores
+            ) cfs ON cfs.address = al.address AND cfs.rn = 1
+                  AND cfs.fragile_level IN ('L1', 'L2', 'L3')
 
             -- 最新持仓快照：总亏损 & 近30天亏损
             INNER JOIN (
@@ -93,7 +94,7 @@ def get_eligible_candidates() -> List[Tuple]:
                 SELECT address, coin, recent_7d_trades,
                        ROW_NUMBER() OVER (PARTITION BY address, coin ORDER BY calculated_at DESC) AS rn
                 FROM hl_coin_address_features
-            ) cf ON cf.address = al.address AND cf.rn = 1
+            ) cf ON cf.address = al.address AND cf.coin = cfs.coin AND cf.rn = 1
                  AND cf.recent_7d_trades > %s
 
             WHERE al.status = 'active'
@@ -131,7 +132,8 @@ def get_active_pool_entries() -> List[Tuple]:
 
 def get_exit_check_data(address: str, coin: str) -> Optional[Tuple]:
     """
-    获取出池检查所需数据：评分等级、近7天交易数、地址状态。
+    获取出池检查所需数据：币种级评分等级、近7天交易数、地址状态。
+    评分来源：hl_coin_fragile_scores（币种级）
 
     Returns:
         (fragile_level, recent_7d_trades, address_status) or None
@@ -141,15 +143,16 @@ def get_exit_check_data(address: str, coin: str) -> Optional[Tuple]:
     try:
         cursor.execute('''
             SELECT
-                fs.fragile_level,
+                cfs.fragile_level,
                 COALESCE(cf.recent_7d_trades, 0) AS recent_7d_trades,
                 al.status
             FROM hl_address_list al
             LEFT JOIN (
-                SELECT address, fragile_level,
-                       ROW_NUMBER() OVER (PARTITION BY address ORDER BY scored_at DESC) AS rn
-                FROM hl_fragile_scores
-            ) fs ON fs.address = al.address AND fs.rn = 1
+                SELECT address, coin, fragile_level,
+                       ROW_NUMBER() OVER (PARTITION BY address, coin ORDER BY scored_at DESC) AS rn
+                FROM hl_coin_fragile_scores
+                WHERE coin = %s
+            ) cfs ON cfs.address = al.address AND cfs.rn = 1
             LEFT JOIN (
                 SELECT address, coin, recent_7d_trades,
                        ROW_NUMBER() OVER (PARTITION BY address, coin ORDER BY calculated_at DESC) AS rn
@@ -157,7 +160,7 @@ def get_exit_check_data(address: str, coin: str) -> Optional[Tuple]:
                 WHERE coin = %s
             ) cf ON cf.address = al.address AND cf.rn = 1
             WHERE al.address = %s
-        ''', (coin, address))
+        ''', (coin, coin, address))
         return cursor.fetchone()
     finally:
         cursor.close()
@@ -181,7 +184,6 @@ def enter_pool(address: str, coin: str, label: Optional[str],
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        # 检查是否已在池中（active）
         cursor.execute('''
             SELECT id FROM hl_fragile_pool
             WHERE address = %s AND coin = %s AND monitor_status = 'active' AND exit_date IS NULL
@@ -196,8 +198,8 @@ def enter_pool(address: str, coin: str, label: Optional[str],
                entry_date, entry_score)
             VALUES (%s, %s, %s, %s, %s, 'active', %s, %s)
             ON DUPLICATE KEY UPDATE
-              fragile_level = VALUES(fragile_level),
-              total_score   = VALUES(total_score),
+              fragile_level  = VALUES(fragile_level),
+              total_score    = VALUES(total_score),
               monitor_status = 'active',
               exit_date      = NULL,
               exit_reason    = NULL,
@@ -206,7 +208,6 @@ def enter_pool(address: str, coin: str, label: Optional[str],
               updated_at     = NOW()
         ''', (address, coin, label, fragile_level, total_score, today, total_score))
 
-        # 写入日志
         cursor.execute('''
             INSERT INTO hl_pool_change_logs
               (address, coin, action, fragile_level, total_score,
@@ -214,7 +215,7 @@ def enter_pool(address: str, coin: str, label: Optional[str],
             VALUES (%s, %s, 'enter', %s, %s, %s, %s, %s, %s)
         ''', (address, coin, fragile_level, total_score,
               pnl_all_time, pnl_month, recent_7d_trades,
-              f'评分{fragile_level}/{total_score:.1f}，近7d交易{recent_7d_trades}笔，月亏{pnl_month:.2f}'))
+              f'币种评分{fragile_level}/{total_score:.1f}，近7d交易{recent_7d_trades}笔，月亏{pnl_month:.2f}'))
 
         conn.commit()
         return True
@@ -314,24 +315,23 @@ def main() -> None:
 
         fragile_level, recent_7d, addr_status = data
         recent_7d = int(recent_7d or 0)
-        total_score = None  # 出池时仅记录等级
 
         if addr_status == 'excluded':
             exit_pool(pool_id, address, coin,
                       reason='地址已被 excluded',
-                      fragile_level=fragile_level, total_score=total_score,
+                      fragile_level=fragile_level, total_score=None,
                       recent_7d_trades=recent_7d)
             exited += 1
         elif fragile_level not in ELIGIBLE_LEVELS:
             exit_pool(pool_id, address, coin,
-                      reason=f'评分降至 {fragile_level}，不满足 L1/L2/L3 要求',
-                      fragile_level=fragile_level, total_score=total_score,
+                      reason=f'币种评分降至 {fragile_level}，不满足 L1/L2/L3 要求',
+                      fragile_level=fragile_level, total_score=None,
                       recent_7d_trades=recent_7d)
             exited += 1
         elif recent_7d <= MIN_RECENT_7D_TRADES:
             exit_pool(pool_id, address, coin,
                       reason=f'近7天交易 {recent_7d} 笔，低于阈值 {MIN_RECENT_7D_TRADES}',
-                      fragile_level=fragile_level, total_score=total_score,
+                      fragile_level=fragile_level, total_score=None,
                       recent_7d_trades=recent_7d)
             exited += 1
 
@@ -343,7 +343,12 @@ def main() -> None:
     try:
         cursor.execute("SELECT COUNT(*) FROM hl_fragile_pool WHERE monitor_status = 'active' AND exit_date IS NULL")
         active_count = cursor.fetchone()[0]
-        cursor.execute("SELECT fragile_level, COUNT(*) FROM hl_fragile_pool WHERE monitor_status = 'active' AND exit_date IS NULL GROUP BY fragile_level")
+        cursor.execute('''
+            SELECT fragile_level, COUNT(*)
+            FROM hl_fragile_pool
+            WHERE monitor_status = 'active' AND exit_date IS NULL
+            GROUP BY fragile_level
+        ''')
         level_dist = cursor.fetchall()
     finally:
         cursor.close()
