@@ -360,8 +360,7 @@ async def run_ws_shard(shard_id: int, addresses: List[str],
             logger.info(f"[分片{shard_id}] 连接 WebSocket... ({len(addresses)} 个地址)")
             async with websockets.connect(
                 WS_URL,
-                ping_interval=PING_INTERVAL,
-                ping_timeout=10,
+                ping_interval=None,   # Hyperliquid 不支持标准 ping/pong，禁用避免超时断连
                 close_timeout=5,
             ) as ws:
                 logger.info(f"[分片{shard_id}] 连接成功，发送订阅请求...")
@@ -383,6 +382,12 @@ async def run_ws_shard(shard_id: int, addresses: List[str],
                 logger.info(f"[分片{shard_id}] 订阅请求发送完毕，等待推送...")
 
                 async for raw in ws:
+                    # Hyperliquid 心跟：服务端会发送文本 "ping"
+                    if raw == 'ping':
+                        await ws.send('pong')
+                        logger.debug(f"[分片{shard_id}] 心跟 pong")
+                        continue
+
                     msg = json.loads(raw)
                     channel = msg.get('channel', '')
 
@@ -404,10 +409,15 @@ async def run_ws_shard(shard_id: int, addresses: List[str],
                     elif channel == 'error':
                         logger.warning(f"[分片{shard_id}] ⚠️ 错误: {msg.get('data')}")
 
+                    else:
+                        logger.debug(f"[分片{shard_id}] 未知消息: channel={channel}")
+
+        except websockets.exceptions.ConnectionClosedOK as e:
+            logger.warning(f"[分片{shard_id}] 连接正常关闭(OK): code={e.code} reason={e.reason}，{RECONNECT_DELAY_SEC}s 后重连...")
         except websockets.exceptions.ConnectionClosedError as e:
-            logger.warning(f"[分片{shard_id}] 连接断开: {e}，{RECONNECT_DELAY_SEC}s 后重连...")
+            logger.warning(f"[分片{shard_id}] 连接异常断开: code={e.code} reason={e.reason}，{RECONNECT_DELAY_SEC}s 后重连...")
         except Exception as e:
-            logger.error(f"[分片{shard_id}] 异常: {e}，{RECONNECT_DELAY_SEC}s 后重连...", exc_info=True)
+            logger.error(f"[分片{shard_id}] 异常: {type(e).__name__}: {e}，{RECONNECT_DELAY_SEC}s 后重连...", exc_info=True)
 
         await asyncio.sleep(RECONNECT_DELAY_SEC)
 
