@@ -360,7 +360,8 @@ async def run_ws_shard(shard_id: int, addresses: List[str],
             logger.info(f"[分片{shard_id}] 连接 WebSocket... ({len(addresses)} 个地址)")
             async with websockets.connect(
                 WS_URL,
-                ping_interval=None,   # Hyperliquid 不支持标准 ping/pong，禁用避免超时断连
+                ping_interval=30,     # 每 30s 发送 ping
+                ping_timeout=60,      # 60s 内没收到 pong 才断连
                 close_timeout=5,
             ) as ws:
                 logger.info(f"[分片{shard_id}] 连接成功，发送订阅请求...")
@@ -383,10 +384,16 @@ async def run_ws_shard(shard_id: int, addresses: List[str],
 
                 async for raw in ws:
                     # Hyperliquid 心跟：服务端会发送文本 "ping"
+                    if isinstance(raw, bytes):
+                        logger.info(f"[分片{shard_id}] 收到 binary 消息: {raw[:50]}")
+                        continue
                     if raw == 'ping':
                         await ws.send('pong')
-                        logger.debug(f"[分片{shard_id}] 心跟 pong")
+                        logger.info(f"[分片{shard_id}] 心跟 pong 已回复")
                         continue
+                    # 打印非常规消息（调试斷连原因）
+                    if not raw.startswith('{'):
+                        logger.info(f"[分片{shard_id}] 非 JSON 消息: {repr(raw[:100])}")
 
                     msg = json.loads(raw)
                     channel = msg.get('channel', '')
