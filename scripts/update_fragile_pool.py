@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # 常量
 # ============================================================
-ELIGIBLE_LEVELS = ('L1', 'L2')
+ELIGIBLE_LEVELS = ('L1', 'L2', 'L3')
 MIN_RECENT_7D_TRADES = 10
 
 
@@ -324,7 +324,7 @@ def main() -> None:
             exited += 1
         elif fragile_level not in ELIGIBLE_LEVELS:
             exit_pool(pool_id, address, coin,
-                      reason=f'评分降至 {fragile_level}，不满足 L1/L2 要求',
+                      reason=f'评分降至 {fragile_level}，不满足 L1/L2/L3 要求',
                       fragile_level=fragile_level, total_score=total_score,
                       recent_7d_trades=recent_7d)
             exited += 1

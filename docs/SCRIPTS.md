@@ -648,13 +648,13 @@ python scripts/calculate_fragile_scores.py 0xdeeacd0aaffb70edd79f410a37c8b20e0a7
 每日评分计算完成后运行，扫描所有地址+币种组合，根据入出池条件更新 `hl_fragile_pool`，并将每次变更写入 `hl_pool_change_logs`。
 
 **入池条件（同时满足）：**
-- `hl_fragile_scores` 最新评分 L1 或 L2
+- `hl_fragile_scores` 最新评分 L1、L2 或 L3
 - `hl_position_snapshots` 最新快照 `pnl_all_time < 0`
 - `hl_position_snapshots` 最新快照 `pnl_month < 0`
 - `hl_coin_address_features` 最新 `recent_7d_trades > 10`
 
 **出池条件（任一满足）：**
-- 评分降至 L3/L4
+- 评分降至 L4
 - 该币种 `recent_7d_trades <= 10`
 - 地址 `status = excluded`
 

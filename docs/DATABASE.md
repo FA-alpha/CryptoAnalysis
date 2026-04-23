@@ -441,13 +441,13 @@ CREATE TABLE `hl_follow_trades` (
 脆弱地址+币种监控池。每条记录代表一个地址+币种组合，满足入池条件后由 `update_fragile_pool.py` 维护。
 
 ### **入池条件**
-- 整体评分 L1 或 L2
+- 整体评分 L1、L2 或 L3
 - `pnl_all_time < 0`（总亏损）
 - `pnl_month < 0`（近30天亏损）
 - 该币种 `recent_7d_trades > 10`
 
 ### **出池条件**
-- 评分降至 L3/L4
+- 评分降至 L4
 - 该币种 `recent_7d_trades <= 10`
 - 地址 `status = excluded`
 
