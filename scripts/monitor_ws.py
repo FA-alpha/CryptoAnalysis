@@ -405,10 +405,14 @@ async def run_ws_shard(shard_id: int, addresses: List[str],
 
                     elif channel == 'userFills':
                         data = msg.get('data', {})
-                        if data.get('isSnapshot'):
-                            continue  # 跳过历史快照
+                        is_snapshot = data.get('isSnapshot', False)
                         user = data.get('user', '')
                         fills = data.get('fills', [])
+                        logger.info(f"[分片{shard_id}] 📩 userFills: user={user[:10]}... snapshot={is_snapshot} fills={len(fills)}")
+                        if fills:
+                            logger.info(f"[分片{shard_id}] 原始消息: {json.dumps(msg, ensure_ascii=False)[:500]}")
+                        if is_snapshot:
+                            continue  # 跳过历史快照
                         for fill in fills:
                             fill['user'] = user  # 注入 user 字段
                             await handle_fill(fill, pool)
