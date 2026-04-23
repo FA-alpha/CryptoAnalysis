@@ -7,7 +7,7 @@
   3. 所有变更写入 hl_pool_change_logs
 
 入池条件（同时满足）：
-  - hl_fragile_scores 最新评分 L1 或 L2
+  - hl_fragile_scores 最新评分 L1、L2 或 L3
   - hl_position_snapshots 最新快照 pnl_all_time < 0（总亏损）
   - hl_position_snapshots 最新快照 pnl_month < 0（近30天亏损）
   - hl_coin_address_features 最新 recent_7d_trades > 10（单币近7天活跃）
@@ -71,13 +71,13 @@ def get_eligible_candidates() -> List[Tuple]:
                 cf.recent_7d_trades
             FROM hl_address_list al
 
-            -- 最新整体评分 L1/L2
+            -- 最新整体评分 L1/L2/L3
             INNER JOIN (
                 SELECT address, fragile_level, total_score,
                        ROW_NUMBER() OVER (PARTITION BY address ORDER BY scored_at DESC) AS rn
                 FROM hl_fragile_scores
             ) fs ON fs.address = al.address AND fs.rn = 1
-                 AND fs.fragile_level IN ('L1', 'L2')
+                 AND fs.fragile_level IN ('L1', 'L2', 'L3')
 
             -- 最新持仓快照：总亏损 & 近30天亏损
             INNER JOIN (
