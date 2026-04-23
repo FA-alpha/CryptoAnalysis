@@ -50,13 +50,13 @@ DB_NAME=fourieralpha_hl
 ### 4. 创建日志目录
 
 ```bash
-mkdir -p /home/ubuntu/CryptoAnalysis/logs
+mkdir -p $PROJECT_DIR/logs
 ```
 
 ### 5. 验证脚本可正常运行
 
 ```bash
-cd /home/ubuntu/CryptoAnalysis
+cd $PROJECT_DIR
 
 # 测试持仓快照
 venv/bin/python scripts/fetch_all_position_snapshots.py
@@ -90,7 +90,7 @@ venv/bin/python scripts/fetch_address_fills_incremental.py
 crontab -e
 ```
 
-粘贴以下内容（**将 `/home/ubuntu/CryptoAnalysis` 替换为实际路径**）：
+粘贴以下内容（**将 `$PROJECT_DIR` 替换为实际路径**）：
 
 ```cron
 # ============================================================
@@ -101,26 +101,26 @@ crontab -e
 # UTC 16:xx = 北京时间次日 00:xx
 
 # 北京 00:00 fills 增量更新（新地址自动全量，已有地址增量）
-0 16 * * * /home/ubuntu/CryptoAnalysis/venv/bin/python /home/ubuntu/CryptoAnalysis/scripts/fetch_address_fills_incremental.py >> /home/ubuntu/CryptoAnalysis/logs/fills.log 2>&1
+0 16 * * * $PROJECT_DIR/venv/bin/python $PROJECT_DIR/scripts/fetch_address_fills_incremental.py >> $PROJECT_DIR/logs/fills.log 2>&1
 
 # 北京 00:05 ledger 充提记录增量更新
-5 16 * * * /home/ubuntu/CryptoAnalysis/venv/bin/python /home/ubuntu/CryptoAnalysis/scripts/fetch_ledger_updates.py >> /home/ubuntu/CryptoAnalysis/logs/ledger.log 2>&1
+5 16 * * * $PROJECT_DIR/venv/bin/python $PROJECT_DIR/scripts/fetch_ledger_updates.py >> $PROJECT_DIR/logs/ledger.log 2>&1
 
 # 北京 00:10 持仓快照（snapshot_date 自动归为前一天）
-10 16 * * * /home/ubuntu/CryptoAnalysis/venv/bin/python /home/ubuntu/CryptoAnalysis/scripts/fetch_all_position_snapshots.py >> /home/ubuntu/CryptoAnalysis/logs/snapshot.log 2>&1
+10 16 * * * $PROJECT_DIR/venv/bin/python $PROJECT_DIR/scripts/fetch_all_position_snapshots.py >> $PROJECT_DIR/logs/snapshot.log 2>&1
 
 # 北京 04:00 特征计算（依赖 fills + 快照数据）
-0 20 * * * /home/ubuntu/CryptoAnalysis/venv/bin/python /home/ubuntu/CryptoAnalysis/scripts/calculate_address_features.py >> /home/ubuntu/CryptoAnalysis/logs/features.log 2>&1
+0 20 * * * $PROJECT_DIR/venv/bin/python $PROJECT_DIR/scripts/calculate_address_features.py >> $PROJECT_DIR/logs/features.log 2>&1
 
 # 北京 05:00 评分计算（依赖特征计算结果）
-0 21 * * * /home/ubuntu/CryptoAnalysis/venv/bin/python /home/ubuntu/CryptoAnalysis/scripts/calculate_fragile_scores.py >> /home/ubuntu/CryptoAnalysis/logs/scores.log 2>&1
+0 21 * * * $PROJECT_DIR/venv/bin/python $PROJECT_DIR/scripts/calculate_fragile_scores.py >> $PROJECT_DIR/logs/scores.log 2>&1
 
 # 北京 06:00 池子更新（依赖评分计算结果）
-0 22 * * * /home/ubuntu/CryptoAnalysis/venv/bin/python /home/ubuntu/CryptoAnalysis/scripts/update_fragile_pool.py >> /home/ubuntu/CryptoAnalysis/logs/pool.log 2>&1
+0 22 * * * $PROJECT_DIR/venv/bin/python $PROJECT_DIR/scripts/update_fragile_pool.py >> $PROJECT_DIR/logs/pool.log 2>&1
 ```
 
 > ⚠️ **关键注意事项**：
-> - cron 中必须用 **venv 的完整路径**（`/opt/.../venv/bin/python`），不能用 `source activate`
+> - cron 中必须用 **venv 的完整路径**（`$PROJECT_DIR/venv/bin/python`），不能用 `source activate`
 > - `CRON_TZ=Asia/Shanghai` 确保时区正确，否则 00:03 会按服务器时区执行
 > - 日志用 `>>` 追加，`2>&1` 同时捕获错误输出
 
@@ -149,10 +149,10 @@ timedatectl | grep "Time zone"
 
 ```bash
 # 持仓快照日志
-tail -f /home/ubuntu/CryptoAnalysis/logs/snapshot.log
+tail -f $PROJECT_DIR/logs/snapshot.log
 
 # fills 更新日志
-tail -f /home/ubuntu/CryptoAnalysis/logs/fills.log
+tail -f $PROJECT_DIR/logs/fills.log
 ```
 
 ### 配置日志自动轮转（防止文件过大）
@@ -162,7 +162,7 @@ sudo vim /etc/logrotate.d/cryptoanalysis
 ```
 
 ```
-/home/ubuntu/CryptoAnalysis/logs/*.log {
+$PROJECT_DIR/logs/*.log {
     daily
     rotate 30
     compress
@@ -193,7 +193,7 @@ sudo systemctl status crond                 # CentOS/RHEL
 
 ```bash
 # 完全模拟 cron 执行环境（无交互式 shell）
-env -i HOME=/root /home/ubuntu/CryptoAnalysis/venv/bin/python /home/ubuntu/CryptoAnalysis/scripts/fetch_all_position_snapshots.py
+env -i HOME=/root $PROJECT_DIR/venv/bin/python $PROJECT_DIR/scripts/fetch_all_position_snapshots.py
 ```
 
 ### 服务器 IP 未加入数据库白名单
@@ -208,8 +208,8 @@ curl ifconfig.me
 ### 日志目录无权限
 
 ```bash
-mkdir -p /home/ubuntu/CryptoAnalysis/logs
-chmod 755 /home/ubuntu/CryptoAnalysis/logs
+mkdir -p $PROJECT_DIR/logs
+chmod 755 $PROJECT_DIR/logs
 ```
 
 ---
