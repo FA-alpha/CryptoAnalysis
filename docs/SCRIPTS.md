@@ -14,6 +14,7 @@ scripts/
 ├── fetch_position_snapshots.py          # 单地址持仓快照
 ├── calculate_address_features.py     # 地址特征计算 v2（当前使用）⭐
 ├── calculate_fragile_scores.py       # 脆弱地址评分 v2（当前使用）⭐
+├── update_fragile_pool.py            # 脆弱地址池入池/出池管理 ⭐ 每日评分后运行
 ├── calculate_address_features.py        # 地址特征计算 v1（已废弃）
 └── calculate_fragile_scores.py          # 脆弱地址评分 v1（已废弃）
 ```
@@ -628,11 +629,47 @@ python scripts/calculate_fragile_scores.py 0xdeeacd0aaffb70edd79f410a37c8b20e0a7
 
 ---
 
-**最后更新**: 2026-04-22
+**最后更新**: 2026-04-23
 
 ### 变更记录
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-04-23 | 新增 `update_fragile_pool.py`：脆弱地址+币种池入池/出池管理；`hl_fragile_pool` 重建（加 coin 字段，UNIQUE KEY 改为 address+coin）；新增 `hl_pool_change_logs` 入出池日志表 |
+| 2026-04-23 | `fetch_address_fills_incremental.py`、`calculate_address_features.py` 地址查询统一改为 `ORDER BY created_at ASC` |
 | 2026-04-22 | `calculate_fragile_scores.py` - `save_coin_score` 改为 `INSERT ... ON DUPLICATE KEY UPDATE`，防止重复写入 `hl_coin_fragile_scores`；数据库新增唯一索引 `uq_address_coin_date(address, coin, scored_date)`；清理存量重复数据 75,451 条 |
 | 2026-04-16 | 新增 `fetch_ledger_updates.py`；更新特征计算和评分为 v2；主流币种过滤；追加保证金因子五实现 |
+
+---
+
+## 11. update_fragile_pool.py（池子入出池管理）⭐
+
+### 功能说明
+每日评分计算完成后运行，扫描所有地址+币种组合，根据入出池条件更新 `hl_fragile_pool`，并将每次变更写入 `hl_pool_change_logs`。
+
+**入池条件（同时满足）：**
+- `hl_fragile_scores` 最新评分 L1 或 L2
+- `hl_position_snapshots` 最新快照 `pnl_all_time < 0`
+- `hl_position_snapshots` 最新快照 `pnl_month < 0`
+- `hl_coin_address_features` 最新 `recent_7d_trades > 10`
+
+**出池条件（任一满足）：**
+- 评分降至 L3/L4
+- 该币种 `recent_7d_trades <= 10`
+- 地址 `status = excluded`
+
+### 使用方式
+
+```bash
+# 每日评分完成后运行
+python scripts/update_fragile_pool.py
+```
+
+### 依赖表
+- 读：`hl_fragile_scores`、`hl_position_snapshots`、`hl_coin_address_features`、`hl_address_list`
+- 写：`hl_fragile_pool`、`hl_pool_change_logs`
+
+### 运行日志
+```
+logs/pool.log
+```

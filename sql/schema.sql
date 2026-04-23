@@ -156,31 +156,52 @@ CREATE TABLE `hl_follow_trades` (
   CONSTRAINT `hl_follow_trades_ibfk_1` FOREIGN KEY (`signal_id`) REFERENCES `hl_reverse_signals` (`signal_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='跟单交易记录';
 
--- Table: hl_fragile_pool
+-- Table: hl_fragile_pool（地址+币种级监控池，2026-04-23 重建）
 DROP TABLE IF EXISTS `hl_fragile_pool`;
 CREATE TABLE `hl_fragile_pool` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `address` varchar(66) NOT NULL COMMENT '钱包地址',
+  `coin` varchar(20) NOT NULL COMMENT '监控币种',
   `label` varchar(100) DEFAULT NULL COMMENT '地址标签',
   `fragile_level` enum('L1','L2','L3','L4') NOT NULL COMMENT '脆弱等级',
+  `total_score` decimal(10,2) DEFAULT NULL COMMENT '入池时整体评分',
   `pool_weight` decimal(5,4) NOT NULL DEFAULT '0.0000' COMMENT '池子权重(0-1)',
   `monitor_status` enum('active','paused','stopped') DEFAULT 'active' COMMENT '监控状态',
   `last_monitored_at` datetime DEFAULT NULL COMMENT '最后监控时间',
-  `last_fill_time` bigint DEFAULT NULL COMMENT '最后一笔 fill 时间戳(ms,用于增量获取)',
+  `last_fill_time` bigint DEFAULT NULL COMMENT '最后一笔fill时间戳(ms)',
   `total_signals` int DEFAULT '0' COMMENT '生成信号总数',
   `total_trades` int DEFAULT '0' COMMENT '跟单交易总数',
   `entry_date` date NOT NULL COMMENT '入池日期',
-  `entry_score` int DEFAULT NULL COMMENT '入池时的评分',
+  `entry_score` decimal(10,2) DEFAULT NULL COMMENT '入池时的评分',
   `exit_date` date DEFAULT NULL COMMENT '出池日期(NULL=仍在池中)',
   `exit_reason` varchar(100) DEFAULT NULL COMMENT '出池原因',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `address` (`address`),
+  UNIQUE KEY `uk_address_coin` (`address`, `coin`),
   KEY `idx_monitor_status` (`monitor_status`,`last_monitored_at`),
   KEY `idx_level` (`fragile_level`),
   KEY `idx_entry_date` (`entry_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='脆弱地址池(实时监控)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='脆弱地址+币种监控池';
+
+-- Table: hl_pool_change_logs（入池/出池变更日志，2026-04-23 新增）
+DROP TABLE IF EXISTS `hl_pool_change_logs`;
+CREATE TABLE `hl_pool_change_logs` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `address` varchar(66) NOT NULL COMMENT '钱包地址',
+  `coin` varchar(20) NOT NULL COMMENT '币种',
+  `action` enum('enter','exit') NOT NULL COMMENT '入池/出池',
+  `fragile_level` enum('L1','L2','L3','L4') DEFAULT NULL COMMENT '脆弱等级',
+  `total_score` decimal(10,2) DEFAULT NULL COMMENT '当时评分',
+  `pnl_all_time` decimal(20,6) DEFAULT NULL COMMENT '总PnL',
+  `pnl_month` decimal(20,6) DEFAULT NULL COMMENT '近30天PnL',
+  `recent_7d_trades` int DEFAULT NULL COMMENT '近7天该币种交易笔数',
+  `reason` varchar(200) DEFAULT NULL COMMENT '入池/出池原因',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_address_coin` (`address`, `coin`),
+  KEY `idx_action_time` (`action`, `created_at` DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='地址+币种入池/出池日志';
 
 -- Table: hl_fragile_scores
 DROP TABLE IF EXISTS `hl_fragile_scores`;

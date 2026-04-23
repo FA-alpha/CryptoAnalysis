@@ -74,9 +74,11 @@ venv/bin/python scripts/fetch_address_fills_incremental.py
 | 时间（北京时间） | 任务 | 说明 |
 |----------------|------|------|
 | **00:00** | fills 增量更新 | 获取当日新增成交记录 |
-| **00:03** | 持仓快照 | `snapshot_date` 自动归为前一天 |
-| **00:10** | 特征计算 | 依赖 fills + 快照数据 |
-| **00:20** | 评分计算 | 依赖特征计算结果 |
+| **00:05** | ledger 充提记录增量更新 | 获取充入/提现/转账/vault 记录 |
+| **00:10** | 持仓快照 | `snapshot_date` 自动归为前一天 |
+| **03:00** | 特征计算 | 依赖 fills + 快照数据 |
+| **04:00** | 评分计算 | 依赖特征计算结果 |
+| **04:30** | 池子更新 | 入池/出池筛选，依赖评分计算结果 |
 
 > 00:03 执行持仓快照时，`snapshot_date` 自动归为**前一天**（代表昨日收盘状态），这是脚本内置的逻辑。
 
@@ -101,14 +103,20 @@ crontab -e
 # 北京 00:00 fills 增量更新（新地址自动全量，已有地址增量）
 0 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_address_fills_incremental.py >> /opt/CryptoAnalysis/logs/fills.log 2>&1
 
-# 北京 00:03 持仓快照（snapshot_date 自动归为前一天）
-3 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_all_position_snapshots.py >> /opt/CryptoAnalysis/logs/snapshot.log 2>&1
+# 北京 00:05 ledger 充提记录增量更新
+5 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_ledger_updates.py >> /opt/CryptoAnalysis/logs/ledger.log 2>&1
 
-# 北京 00:10 特征计算（依赖 fills + 快照数据）
-10 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_address_features.py >> /opt/CryptoAnalysis/logs/features.log 2>&1
+# 北京 00:10 持仓快照（snapshot_date 自动归为前一天）
+10 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/fetch_all_position_snapshots.py >> /opt/CryptoAnalysis/logs/snapshot.log 2>&1
 
-# 北京 00:20 评分计算（依赖特征计算结果）
-20 16 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_fragile_scores.py >> /opt/CryptoAnalysis/logs/scores.log 2>&1
+# 北京 03:00 特征计算（依赖 fills + 快照数据）
+0 19 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_address_features.py >> /opt/CryptoAnalysis/logs/features.log 2>&1
+
+# 北京 04:00 评分计算（依赖特征计算结果）
+0 20 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/calculate_fragile_scores.py >> /opt/CryptoAnalysis/logs/scores.log 2>&1
+
+# 北京 04:30 池子更新（依赖评分计算结果）
+30 20 * * * /opt/CryptoAnalysis/venv/bin/python /opt/CryptoAnalysis/scripts/update_fragile_pool.py >> /opt/CryptoAnalysis/logs/pool.log 2>&1
 ```
 
 > ⚠️ **关键注意事项**：
@@ -216,4 +224,4 @@ chmod 755 /opt/CryptoAnalysis/logs
 
 ---
 
-**最后更新**: 2026-04-08
+**最后更新**: 2026-04-23

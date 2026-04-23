@@ -19,7 +19,8 @@
 | [hl_fills](#hl-fills) | 交易历史（原始成交数据） | ✅ 使用中 |
 | [hl_ledger_updates](#hl-ledger-updates) | 非资金费账本流水（充值/提现/转账/vault） | ✅ 使用中 |
 | [hl_follow_trades](#hl-follow-trades) | 跟单交易记录 | ✅ 使用中 |
-| [hl_fragile_pool](#hl-fragile-pool) | 脆弱地址池（实时监控） | ✅ 使用中 |
+| [hl_fragile_pool](#hl-fragile-pool) | 脆弱地址+币种监控池 | ✅ 使用中（2026-04-23 重建，加 coin 字段）|
+| [hl_pool_change_logs](#hl-pool-change-logs) | 入池/出池变更日志 | ✅ 使用中（2026-04-23 新增）|
 | [hl_fragile_scores](#hl-fragile-scores) | 脆弱地址评分 | ✅ 使用中（V3新增字段）|
 | [hl_monitor_logs](#hl-monitor-logs) | 实时监控日志 | ✅ 使用中 |
 | [hl_position_details](#hl-position-details) | 持仓明细 | ✅ 使用中 |
@@ -434,8 +435,21 @@ CREATE TABLE `hl_follow_trades` (
 
 ## 6. hl_fragile_pool
 
+> ⚠️ 2026-04-23 重建：粒度从地址级改为**地址+币种级**，新增 `coin`、`total_score` 字段，UNIQUE KEY 改为 `(address, coin)`。
+
 ### **表说明**
-脆弱地址池（实时监控）
+脆弱地址+币种监控池。每条记录代表一个地址+币种组合，满足入池条件后由 `update_fragile_pool.py` 维护。
+
+### **入池条件**
+- 整体评分 L1 或 L2
+- `pnl_all_time < 0`（总亏损）
+- `pnl_month < 0`（近30天亏损）
+- 该币种 `recent_7d_trades > 10`
+
+### **出池条件**
+- 评分降至 L3/L4
+- 该币种 `recent_7d_trades <= 10`
+- 地址 `status = excluded`
 
 ### **表结构**
 
@@ -443,26 +457,28 @@ CREATE TABLE `hl_follow_trades` (
 CREATE TABLE `hl_fragile_pool` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `address` varchar(66) NOT NULL COMMENT '钱包地址',
+  `coin` varchar(20) NOT NULL COMMENT '监控币种',
   `label` varchar(100) DEFAULT NULL COMMENT '地址标签',
   `fragile_level` enum('L1','L2','L3','L4') NOT NULL COMMENT '脆弱等级',
+  `total_score` decimal(10,2) DEFAULT NULL COMMENT '入池时整体评分',
   `pool_weight` decimal(5,4) NOT NULL DEFAULT '0.0000' COMMENT '池子权重(0-1)',
   `monitor_status` enum('active','paused','stopped') DEFAULT 'active' COMMENT '监控状态',
   `last_monitored_at` datetime DEFAULT NULL COMMENT '最后监控时间',
-  `last_fill_time` bigint DEFAULT NULL COMMENT '最后一笔 fill 时间戳(ms,用于增量获取)',
+  `last_fill_time` bigint DEFAULT NULL COMMENT '最后一笔fill时间戳(ms)',
   `total_signals` int DEFAULT '0' COMMENT '生成信号总数',
   `total_trades` int DEFAULT '0' COMMENT '跟单交易总数',
   `entry_date` date NOT NULL COMMENT '入池日期',
-  `entry_score` int DEFAULT NULL COMMENT '入池时的评分',
+  `entry_score` decimal(10,2) DEFAULT NULL COMMENT '入池时的评分',
   `exit_date` date DEFAULT NULL COMMENT '出池日期(NULL=仍在池中)',
   `exit_reason` varchar(100) DEFAULT NULL COMMENT '出池原因',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `address` (`address`),
+  UNIQUE KEY `uk_address_coin` (`address`, `coin`),
   KEY `idx_monitor_status` (`monitor_status`,`last_monitored_at`),
   KEY `idx_level` (`fragile_level`),
   KEY `idx_entry_date` (`entry_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='脆弱地址池(实时监控)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='脆弱地址+币种监控池';
 ```
 
 ### **字段说明**
@@ -471,16 +487,18 @@ CREATE TABLE `hl_fragile_pool` (
 |------|------|------|------|
 | `id` | bigint | ✅ | - |
 | `address` | varchar(66) | ✅ | 钱包地址 |
+| `coin` | varchar(20) | ✅ | 监控币种 |
 | `label` | varchar(100) | ❌ | 地址标签 |
 | `fragile_level` | enum('L1','L2','L3','L4') | ✅ | 脆弱等级 |
+| `total_score` | decimal(10,2) | ❌ | 入池时整体评分 |
 | `pool_weight` | decimal(5,4) | ✅ | 池子权重(0-1) |
 | `monitor_status` | enum('active','paused','stopped') | ❌ | 监控状态 |
 | `last_monitored_at` | datetime | ❌ | 最后监控时间 |
-| `last_fill_time` | bigint | ❌ | 最后一笔 fill 时间戳(ms,用于增量获取) |
+| `last_fill_time` | bigint | ❌ | 最后一笔fill时间戳(ms) |
 | `total_signals` | int | ❌ | 生成信号总数 |
 | `total_trades` | int | ❌ | 跟单交易总数 |
 | `entry_date` | date | ✅ | 入池日期 |
-| `entry_score` | int | ❌ | 入池时的评分 |
+| `entry_score` | decimal(10,2) | ❌ | 入池时的评分 |
 | `exit_date` | date | ❌ | 出池日期(NULL=仍在池中) |
 | `exit_reason` | varchar(100) | ❌ | 出池原因 |
 | `created_at` | datetime | ✅ | - |
@@ -491,10 +509,54 @@ CREATE TABLE `hl_fragile_pool` (
 | 索引名 | 字段 | 类型 | 用途 |
 |--------|------|------|------|
 | PRIMARY | id | 唯一 | - |
-| address | address | 唯一 | - |
-| idx_monitor_status | monitor_status | 普通 | - |
-| idx_level | fragile_level | 普通 | - |
-| idx_entry_date | entry_date | 普通 | - |
+| uk_address_coin | (address, coin) | 唯一 | 防重复入池 |
+| idx_monitor_status | monitor_status | 普通 | 监控查询 |
+| idx_level | fragile_level | 普通 | 等级筛选 |
+| idx_entry_date | entry_date | 普通 | 日期查询 |
+
+---
+
+## 6b. hl_pool_change_logs
+
+### **表说明**
+地址+币种入池/出池变更日志。每次入池或出池都写一条记录，用于追踪池子变化历史。
+
+### **表结构**
+
+```sql
+CREATE TABLE `hl_pool_change_logs` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `address` varchar(66) NOT NULL COMMENT '钱包地址',
+  `coin` varchar(20) NOT NULL COMMENT '币种',
+  `action` enum('enter','exit') NOT NULL COMMENT '入池/出池',
+  `fragile_level` enum('L1','L2','L3','L4') DEFAULT NULL COMMENT '脆弱等级',
+  `total_score` decimal(10,2) DEFAULT NULL COMMENT '当时评分',
+  `pnl_all_time` decimal(20,6) DEFAULT NULL COMMENT '总PnL',
+  `pnl_month` decimal(20,6) DEFAULT NULL COMMENT '近30天PnL',
+  `recent_7d_trades` int DEFAULT NULL COMMENT '近7天该币种交易笔数',
+  `reason` varchar(200) DEFAULT NULL COMMENT '入池/出池原因',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_address_coin` (`address`, `coin`),
+  KEY `idx_action_time` (`action`, `created_at` DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='地址+币种入池/出池日志';
+```
+
+### **字段说明**
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `id` | bigint | ✅ | - |
+| `address` | varchar(66) | ✅ | 钱包地址 |
+| `coin` | varchar(20) | ✅ | 币种 |
+| `action` | enum('enter','exit') | ✅ | 入池/出池 |
+| `fragile_level` | enum | ❌ | 操作时的脆弱等级 |
+| `total_score` | decimal(10,2) | ❌ | 操作时的评分 |
+| `pnl_all_time` | decimal(20,6) | ❌ | 入池时的总PnL |
+| `pnl_month` | decimal(20,6) | ❌ | 入池时的近30天PnL |
+| `recent_7d_trades` | int | ❌ | 操作时近7天该币种交易笔数 |
+| `reason` | varchar(200) | ❌ | 入池/出池具体原因 |
+| `created_at` | datetime | ✅ | 操作时间 |
 
 ---
 
