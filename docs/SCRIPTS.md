@@ -12,11 +12,12 @@ scripts/
 ├── fetch_ledger_updates.py              # 充提记录采集（全量/增量自动判断）⭐ 日常使用
 ├── fetch_all_position_snapshots.py      # 批量获取持仓快照（含 PnL）⭐
 ├── fetch_position_snapshots.py          # 单地址持仓快照
-├── calculate_address_features.py     # 地址特征计算 v2（当前使用）⭐
-├── calculate_fragile_scores.py       # 脆弱地址评分 v2（当前使用）⭐
-├── update_fragile_pool.py            # 脆弱地址池入池/出池管理 ⭐ 每日评分后运行
-├── calculate_address_features.py        # 地址特征计算 v1（已废弃）
-└── calculate_fragile_scores.py          # 脆弱地址评分 v1（已废弃）
+├── calculate_address_features.py        # 地址特征计算 v2（当前使用）⭐
+├── calculate_fragile_scores.py          # 脆弱地址评分 v2（当前使用）⭐
+├── update_fragile_pool.py               # 脆弱地址池入池/出池管理 ⭐ 每日评分后运行
+├── monitor_combined.py                  # 混合监控服务：WS实时(TOP 10) + HTTP串行轮询(其余) ⭐ 实时监控
+├── monitor_signals.py                   # （已废弃，由 monitor_combined.py 替代）
+└── monitor_ws.py                        # （已废弃，由 monitor_combined.py 替代）
 ```
 
 ---
@@ -673,3 +674,94 @@ python scripts/update_fragile_pool.py
 ```
 logs/pool.log
 ```
+
+---
+
+## 12. monitor_combined.py（混合监控服务）⭐ 实时监控
+
+### 功能说明
+
+实时监控 `hl_fragile_pool` 中所有 active 地址的开仓/加仓/减仓/平仓行为，生成反向信号并推送飞书。
+
+**当前配置（共 63 个地址）：**
+- **WS（TOP 10 活跃地址）**：按近7日交易笔数排序，最高的 10 个地址通过 WebSocket 实时订阅，成交即推送，零延迟
+- **HTTP（其余 53 个地址）**：单协程串行轮询 `userFillsByTime`，每次请求间隔 ≥ 1000ms，一轮约 53 秒
+
+### 信号触发逻辑
+
+| fill.dir | 动作 | 推送类型 |
+|---------|------|----------|
+| Open Long / Open Short | 开仓 | 🚨 反向信号（红色） |
+| Close Long / Close Short | 平仓 | 📢 平仓提示（蓝色） |
+
+### 使用方式
+
+```bash
+# 后台持续运行（推荐）
+cd /home/ubuntu/CryptoAnalysis
+nohup venv/bin/python scripts/monitor_combined.py > logs/monitor_combined.log 2>&1 &
+echo "PID: $!"
+
+# 调试：HTTP 只跑一轮
+venv/bin/python scripts/monitor_combined.py --once
+
+# 查看实时日志
+tail -f logs/monitor_combined.log
+
+# 查看进程是否在跑
+ps aux | grep monitor_combined
+
+# 停止
+kill $(pgrep -f monitor_combined.py)
+```
+
+### 关键配置参数
+
+| 参数 | 默认値 | 说明 |
+|------|--------|------|
+| `TOP_N_WS` | 10 | WS 覆盖的最活跃地址数（官方上限 10） |
+| `HTTP_MIN_INTERVAL_MS` | 1000 | 两次 HTTP 请求最小间隔（毫秒） |
+| `HTTP_REQUEST_TIMEOUT` | 15 | 单次请求超时（秒） |
+| `HTTP_429_BACKOFF` | [10,30,60] | 429 退避时间序列（秒） |
+| `POOL_REFRESH_INTERVAL` | 3600 | 池子刷新间隔（秒） |
+| `RECONNECT_DELAY` | 5 | WS 断连重连等待（秒） |
+
+### 限流说明
+
+Hyperliquid REST 限制：**1200 weight/分钟**，`userFillsByTime` weight=20，即最多 **60次/分钟 = 1次/秒**。
+
+`HTTP_MIN_INTERVAL_MS=1000`：53 个地址 × 1s = 约 **53秒一轮**，占用不到限制的 100%。
+
+> ⚠️ 不要调低 `HTTP_MIN_INTERVAL_MS`，否则会触发 429 惩罚性封禁（可能持续 30分钟以上）。
+
+### 信号飞书格式
+
+```
+🚨 反向信号 · BTC · 🔴 开多仓
+地址：`0xd45d...cd9e` (割肉侠)  ⚡WS
+币种：BTC  |  脆弱等级：L1（90分）
+动作：🔴 开多仓
+价格：95000.0000  |  数量：0.5 BTC
+时间：2026-04-24 10:00:00
+
+💡 反向建议：做空
+```
+
+### 依赖表
+- 读：`hl_fragile_pool`、`hl_coin_address_features`
+- 写：`hl_reverse_signals`、`hl_fragile_pool.last_fill_time`
+
+### 运行日志
+```
+logs/monitor_combined.log
+```
+
+---
+
+**最后更新**: 2026-04-24
+
+### 变更记录
+
+| 日期 | 变更内容 |
+|------|----------|
+| 2026-04-24 | 新增 `monitor_combined.py`：合并 monitor_ws / monitor_signals，WS（TOP 10）+ HTTP 串行轮询（1000ms 间隔）统一监控 |
