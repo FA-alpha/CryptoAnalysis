@@ -15,7 +15,7 @@
 |------|------|------|
 | [hl_address_features](#hl-address-features) | 地址特征（计算结果） | ✅ 使用中（V3新增字段）|
 | [hl_address_list](#hl-address-list) | 地址列表 | ✅ 使用中 |
-| [hl_backtest_results](#hl-backtest-results) | 回测结果 | ✅ 使用中 |
+| ~~hl_backtest_results~~ | 回测结果 | ❌ 已删除（2026-04-24），回测已迁移到独立系统 |
 | [hl_fills](#hl-fills) | 交易历史（原始成交数据） | ✅ 使用中 |
 | [hl_ledger_updates](#hl-ledger-updates) | 非资金费账本流水（充值/提现/转账/vault） | ✅ 使用中 |
 | [hl_follow_trades](#hl-follow-trades) | 跟单交易记录 | ✅ 使用中 |
@@ -171,67 +171,9 @@ CREATE TABLE `hl_address_list` (
 
 ---
 
-## 3. hl_backtest_results
+## 3. ~~hl_backtest_results~~（已删除 2026-04-24）
 
-### **表说明**
-回测结果
-
-### **表结构**
-
-```sql
-CREATE TABLE `hl_backtest_results` (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `address` varchar(66) NOT NULL COMMENT '钱包地址',
-  `backtest_name` varchar(100) DEFAULT NULL COMMENT '回测名称/批次',
-  `backtest_date` date NOT NULL COMMENT '回测日期',
-  `period_start` bigint NOT NULL COMMENT '回测期起始时间戳(ms)',
-  `period_end` bigint NOT NULL COMMENT '回测期结束时间戳(ms)',
-  `reverse_trade_count` int DEFAULT NULL COMMENT '反向交易次数',
-  `reverse_win_rate` decimal(5,2) DEFAULT NULL COMMENT '反向胜率(%)',
-  `reverse_total_pnl` decimal(20,6) DEFAULT NULL COMMENT '反向总盈亏',
-  `reverse_profit_loss_ratio` decimal(10,2) DEFAULT NULL COMMENT '反向盈亏比',
-  `max_drawdown` decimal(5,2) DEFAULT NULL COMMENT '最大回撤(%)',
-  `sharpe_ratio` decimal(10,2) DEFAULT NULL COMMENT '夏普比率',
-  `classification_stable` tinyint(1) DEFAULT NULL COMMENT '分类是否稳定',
-  `avg_score` decimal(10,2) DEFAULT NULL COMMENT '期间平均评分',
-  `score_volatility` decimal(10,2) DEFAULT NULL COMMENT '评分波动率',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_address` (`address`),
-  KEY `idx_backtest_name` (`backtest_name`),
-  KEY `idx_backtest_date` (`backtest_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='回测结果';
-```
-
-### **字段说明**
-
-| 字段 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `id` | bigint | ✅ | - |
-| `address` | varchar(66) | ✅ | 钱包地址 |
-| `backtest_name` | varchar(100) | ❌ | 回测名称/批次 |
-| `backtest_date` | date | ✅ | 回测日期 |
-| `period_start` | bigint | ✅ | 回测期起始时间戳(ms) |
-| `period_end` | bigint | ✅ | 回测期结束时间戳(ms) |
-| `reverse_trade_count` | int | ❌ | 反向交易次数 |
-| `reverse_win_rate` | decimal(5,2) | ❌ | 反向胜率(%) |
-| `reverse_total_pnl` | decimal(20,6) | ❌ | 反向总盈亏 |
-| `reverse_profit_loss_ratio` | decimal(10,2) | ❌ | 反向盈亏比 |
-| `max_drawdown` | decimal(5,2) | ❌ | 最大回撤(%) |
-| `sharpe_ratio` | decimal(10,2) | ❌ | 夏普比率 |
-| `classification_stable` | tinyint(1) | ❌ | 分类是否稳定 |
-| `avg_score` | decimal(10,2) | ❌ | 期间平均评分 |
-| `score_volatility` | decimal(10,2) | ❌ | 评分波动率 |
-| `created_at` | datetime | ✅ | - |
-
-### **索引**
-
-| 索引名 | 字段 | 类型 | 用途 |
-|--------|------|------|------|
-| PRIMARY | id | 唯一 | - |
-| idx_address | address | 普通 | - |
-| idx_backtest_name | backtest_name | 普通 | - |
-| idx_backtest_date | backtest_date | 普通 | - |
+> 废弃表，回测功能已迁移到独立系统实现。
 
 ---
 

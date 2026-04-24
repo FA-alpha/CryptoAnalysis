@@ -70,30 +70,7 @@ CREATE TABLE `hl_address_list` (
   KEY `idx_last_updated` (`last_updated_at`)
 ) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='地址列表';
 
--- Table: hl_backtest_results
-DROP TABLE IF EXISTS `hl_backtest_results`;
-CREATE TABLE `hl_backtest_results` (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `address` varchar(66) NOT NULL COMMENT '钱包地址',
-  `backtest_name` varchar(100) DEFAULT NULL COMMENT '回测名称/批次',
-  `backtest_date` date NOT NULL COMMENT '回测日期',
-  `period_start` bigint NOT NULL COMMENT '回测期起始时间戳(ms)',
-  `period_end` bigint NOT NULL COMMENT '回测期结束时间戳(ms)',
-  `reverse_trade_count` int DEFAULT NULL COMMENT '反向交易次数',
-  `reverse_win_rate` decimal(5,2) DEFAULT NULL COMMENT '反向胜率(%)',
-  `reverse_total_pnl` decimal(20,6) DEFAULT NULL COMMENT '反向总盈亏',
-  `reverse_profit_loss_ratio` decimal(10,2) DEFAULT NULL COMMENT '反向盈亏比',
-  `max_drawdown` decimal(5,2) DEFAULT NULL COMMENT '最大回撤(%)',
-  `sharpe_ratio` decimal(10,2) DEFAULT NULL COMMENT '夏普比率',
-  `classification_stable` tinyint(1) DEFAULT NULL COMMENT '分类是否稳定',
-  `avg_score` decimal(10,2) DEFAULT NULL COMMENT '期间平均评分',
-  `score_volatility` decimal(10,2) DEFAULT NULL COMMENT '评分波动率',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_address` (`address`),
-  KEY `idx_backtest_name` (`backtest_name`),
-  KEY `idx_backtest_date` (`backtest_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='回测结果';
+-- Table: hl_backtest_results（已删除 2026-04-24，回测已迁移到独立系统）
 
 -- Table: hl_fills
 DROP TABLE IF EXISTS `hl_fills`;
