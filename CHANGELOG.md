@@ -1,5 +1,24 @@
 # 更新日志
 
+## [0.3.1] - 2026-04-24
+
+### 🔧 monitor_combined.py 修复与优化
+
+#### 修复
+- ✅ HTTP 429 退避不生效问题：`except HTTPStatusError` 里 429 只 `continue` 没有 sleep
+- ✅ 429 退避结束后 `last_req_ms` 未重置，导致批量请求无间隔打出
+
+#### 优化
+- ✅ 飞书推送时间改为北京时间（UTC+8）
+- ✅ 平仓/减仓时推送已实现盈亏（closedPnl）
+- ✅ 开仓/加仓显示当前持仓（startPosition + sz）
+- ✅ 平仓/减仓显示剩余持仓（startPosition - sz）
+
+#### 数据库变更
+- ✅ 删除废弃表 `hl_monitor_addresses`（已由 `hl_fragile_pool` 替代）
+
+---
+
 ## [0.3.0] - 2026-04-16
 
 ### 🎯 因子五实现 + 数据库清理
