@@ -22,7 +22,7 @@
 | [hl_fragile_pool](#hl-fragile-pool) | 脆弱地址+币种监控池 | ✅ 使用中（2026-04-23 重建，加 coin 字段）|
 | [hl_pool_change_logs](#hl-pool-change-logs) | 入池/出池变更日志 | ✅ 使用中（2026-04-23 新增）|
 | [hl_fragile_scores](#hl-fragile-scores) | 脆弱地址评分 | ✅ 使用中（V3新增字段）|
-| [hl_monitor_logs](#hl-monitor-logs) | 实时监控日志 | ✅ 使用中 |
+| ~~hl_monitor_logs~~ | 实时监控日志 | ❌ 已删除（2026-04-24）|
 | [hl_position_details](#hl-position-details) | 持仓明细 | ✅ 使用中 |
 | [hl_position_snapshots](#hl-position-snapshots) | 持仓快照（汇总） | ✅ 使用中 |
 | [hl_reverse_signals](#hl-reverse-signals) | 反向跟单信号 | ✅ 使用中 |
@@ -628,53 +628,9 @@ CREATE TABLE `hl_fragile_scores` (
 
 ---
 
-## 8. hl_monitor_logs
+## 8. ~~hl_monitor_logs~~（已删除 2026-04-24）
 
-### **表说明**
-实时监控日志
-
-### **表结构**
-
-```sql
-CREATE TABLE `hl_monitor_logs` (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `address` varchar(66) NOT NULL COMMENT '监控地址',
-  `check_time` datetime NOT NULL COMMENT '检查时间',
-  `has_new_fills` tinyint(1) NOT NULL COMMENT '是否有新 fills',
-  `new_fills_count` int DEFAULT '0' COMMENT '新 fills 数量',
-  `signals_generated` int DEFAULT '0' COMMENT '生成信号数量',
-  `execution_time_ms` int DEFAULT NULL COMMENT '执行耗时(ms)',
-  `error_occurred` tinyint(1) DEFAULT '0' COMMENT '是否发生错误',
-  `error_message` text COMMENT '错误信息',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_address_time` (`address`,`check_time` DESC),
-  KEY `idx_check_time` (`check_time` DESC)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='实时监控日志';
-```
-
-### **字段说明**
-
-| 字段 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `id` | bigint | ✅ | - |
-| `address` | varchar(66) | ✅ | 监控地址 |
-| `check_time` | datetime | ✅ | 检查时间 |
-| `has_new_fills` | tinyint(1) | ✅ | 是否有新 fills |
-| `new_fills_count` | int | ❌ | 新 fills 数量 |
-| `signals_generated` | int | ❌ | 生成信号数量 |
-| `execution_time_ms` | int | ❌ | 执行耗时(ms) |
-| `error_occurred` | tinyint(1) | ❌ | 是否发生错误 |
-| `error_message` | text | ❌ | 错误信息 |
-| `created_at` | datetime | ✅ | - |
-
-### **索引**
-
-| 索引名 | 字段 | 类型 | 用途 |
-|--------|------|------|------|
-| PRIMARY | id | 唯一 | - |
-| idx_address_time | address | 普通 | - |
-| idx_check_time | check_time | 普通 | - |
+> 废弃表，已由 monitor_combined.py 日志文件替代，无代码引用，已删除。
 
 ---
 

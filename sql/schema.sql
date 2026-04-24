@@ -225,23 +225,7 @@ CREATE TABLE `hl_fragile_scores` (
   CONSTRAINT `hl_fragile_scores_ibfk_1` FOREIGN KEY (`feature_id`) REFERENCES `hl_address_features` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='脆弱地址评分(v2)';
 
--- Table: hl_monitor_logs
-DROP TABLE IF EXISTS `hl_monitor_logs`;
-CREATE TABLE `hl_monitor_logs` (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `address` varchar(66) NOT NULL COMMENT '监控地址',
-  `check_time` datetime NOT NULL COMMENT '检查时间',
-  `has_new_fills` tinyint(1) NOT NULL COMMENT '是否有新 fills',
-  `new_fills_count` int DEFAULT '0' COMMENT '新 fills 数量',
-  `signals_generated` int DEFAULT '0' COMMENT '生成信号数量',
-  `execution_time_ms` int DEFAULT NULL COMMENT '执行耗时(ms)',
-  `error_occurred` tinyint(1) DEFAULT '0' COMMENT '是否发生错误',
-  `error_message` text COMMENT '错误信息',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_address_time` (`address`,`check_time` DESC),
-  KEY `idx_check_time` (`check_time` DESC)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='实时监控日志';
+-- Table: hl_monitor_logs (已删除 2026-04-24，废弃表)
 
 -- Table: hl_position_details
 DROP TABLE IF EXISTS `hl_position_details`;

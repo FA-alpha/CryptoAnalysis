@@ -16,6 +16,8 @@
 
 #### 数据库变更
 - ✅ 删除废弃表 `hl_monitor_addresses`（已由 `hl_fragile_pool` 替代）
+- ✅ 删除废弃表 `hl_monitor_logs`（已由日志文件替代）
+- ✅ 删除废弃表 `hl_trade_signals`（已由 `hl_reverse_signals` 替代）
 
 ---
 
