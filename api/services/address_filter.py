@@ -45,11 +45,11 @@ def filter_addresses(
         SELECT
             s.address,
             s.coin,
-            s.total_score  AS score,
+            s.total_score   AS score,
             s.fragile_level AS level,
             f.win_rate,
-            f.avg_leverage_min,
-            f.recent_7d_trades
+            f.recent_7d_trades,
+            af.avg_leverage
         FROM hl_coin_fragile_scores s
         JOIN (
             SELECT address, coin, MAX(scored_at) AS max_scored_at
@@ -68,6 +68,15 @@ def filter_addresses(
              AND f.coin   = lf.coin
              AND f.calculated_at = lf.max_calc_at
         JOIN hl_address_list al ON s.address = al.address
+        -- 地址整体特征（取最新一条），用于 avg_leverage 过滤
+        JOIN hl_address_features af
+            ON s.address = af.address
+        JOIN (
+            SELECT address, MAX(calculated_at) AS max_calc_at
+            FROM hl_address_features
+            GROUP BY address
+        ) laf ON af.address = laf.address
+              AND af.calculated_at = laf.max_calc_at
         WHERE al.status = 'active'
           AND f.is_excluded = 0
           AND s.total_score >= %(score_min)s
@@ -98,12 +107,10 @@ def filter_addresses(
         sql += " AND (f.win_rate IS NULL OR f.win_rate <= %(win_rate_max)s)"
         bind["win_rate_max"] = params.win_rate_max
 
-    # 平均杠杆下限（hl_coin_address_features 没有 avg_leverage，用 hl_address_features）
-    # 注：hl_coin_address_features 暂无 avg_leverage 字段，跳过该过滤项并记录警告
+    # 平均杠杆下限（来自 hl_address_features 地址整体维度）
     if params.avg_leverage_min is not None:
-        logger.warning(
-            "avg_leverage_min 筛选暂不支持（hl_coin_address_features 无 avg_leverage 字段），已跳过"
-        )
+        sql += " AND (af.avg_leverage IS NULL OR af.avg_leverage >= %(avg_leverage_min)s)"
+        bind["avg_leverage_min"] = params.avg_leverage_min
 
     # 近7日交易次数
     if params.trades_7d_min is not None:
