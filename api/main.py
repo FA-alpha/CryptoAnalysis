@@ -3,10 +3,10 @@ CryptoAnalysis 策略 API 服务
 
 启动方式：
   cd /home/ubuntu/CryptoAnalysis
-  venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000
+  venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 18888
 
 后台启动：
-  nohup venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 > logs/api.log 2>&1 &
+  nohup venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 18888 > logs/api.log 2>&1 &
 
 接口文档：
   http://localhost:8000/docs
