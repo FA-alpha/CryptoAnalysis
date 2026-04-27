@@ -79,6 +79,7 @@ venv/bin/python scripts/fetch_address_fills_incremental.py
 | **04:00** | 特征计算 | 依赖 fills + 快照数据 |
 | **05:00** | 评分计算 | 依赖特征计算结果 |
 | **06:00** | 池子更新 | 入池/出池筛选，依赖评分计算结果 |
+| **07:00** | 策略地址池刷新 | 对所有活跃策略重新筛选地址（差量更新）|
 
 > 00:03 执行持仓快照时，`snapshot_date` 自动归为**前一天**（代表昨日收盘状态），这是脚本内置的逻辑。
 
@@ -117,6 +118,9 @@ crontab -e
 
 # 北京 06:00 池子更新（依赖评分计算结果）
 0 22 * * * $PROJECT_DIR/venv/bin/python $PROJECT_DIR/scripts/update_fragile_pool.py >> $PROJECT_DIR/logs/pool.log 2>&1
+
+# 北京 07:00 策略地址池每日刷新（依赖评分+池子更新完成）
+0 23 * * * $PROJECT_DIR/venv/bin/python $PROJECT_DIR/scripts/refresh_strategy_addresses.py >> $PROJECT_DIR/logs/refresh_strategy_addresses.log 2>&1
 ```
 
 > ⚠️ **关键注意事项**：

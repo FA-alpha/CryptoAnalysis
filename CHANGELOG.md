@@ -1,5 +1,28 @@
 # 更新日志
 
+## [0.4.0] - 2026-04-27
+
+### 🚀 策略系统（多策略监控 API）
+
+#### 新增功能
+- **FastAPI 策略服务** (`api/`) — 三个接口：启动策略 / 停止策略 / 查询监控地址
+  - `POST /strategies/start` — 传参启动，strategy_id 已存在时复用旧记录
+  - `POST /strategies/{id}/stop` — 停止策略，软删除地址关联
+  - `GET /strategies/{id}/addresses` — 分页查询，支持 coin/level 过滤
+- **筛选参数**：score_min/max、level、win_rate_max、avg_leverage_min（JOIN hl_address_features）、trades_7d_min/max、coins、max_addresses
+- **`scripts/refresh_strategy_addresses.py`** — 每日差量刷新策略地址池（新增/软删除）
+- **`scripts/monitor_strategy.py`** — 策略版独立监控进程，60s reload 策略配置，信号含 strategy_id，预留 Redis publish 接口
+
+#### 数据库变更
+- 新增 `hl_strategies`（策略配置持久化）
+- 新增 `hl_strategy_addresses`（策略↔地址+币种关联，含 excluded_at 软删除）
+- `hl_reverse_signals` + `hl_follow_trades` 新增 `strategy_id` 字段
+
+#### Cron 新增
+- 北京 07:00 自动执行 `refresh_strategy_addresses.py`
+
+---
+
 ## [0.3.1] - 2026-04-24
 
 ### 🔧 monitor_combined.py 修复与优化

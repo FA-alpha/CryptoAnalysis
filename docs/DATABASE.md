@@ -25,7 +25,9 @@
 | ~~hl_monitor_logs~~ | 实时监控日志 | ❌ 已删除（2026-04-24）|
 | [hl_position_details](#hl-position-details) | 持仓明细 | ✅ 使用中 |
 | [hl_position_snapshots](#hl-position-snapshots) | 持仓快照（汇总） | ✅ 使用中 |
-| [hl_reverse_signals](#hl-reverse-signals) | 反向跟单信号 | ✅ 使用中 |
+| [hl_reverse_signals](#hl-reverse-signals) | 反向跟单信号 | ✅ 使用中（v0.2.0 新增 strategy_id）|
+| [hl_strategies](#hl-strategies) | 策略配置持久化 | ✅ 使用中（v0.2.0 新增）|
+| [hl_strategy_addresses](#hl-strategy-addresses) | 策略↔地址+币种关联 | ✅ 使用中（v0.2.0 新增）|
 
 ## 📑 视图清单
 
@@ -743,6 +745,7 @@ CREATE TABLE `hl_reverse_signals` (
 |------|------|------|------|
 | `id` | bigint | ✅ | - |
 | `signal_id` | varchar(50) | ✅ | 信号ID(防重复) |
+| `strategy_id` | varchar(64) | ❌ | 关联策略ID（v0.2.0新增）|
 | `source_address` | varchar(66) | ✅ | 脆弱地址 |
 | `signal_type` | enum('new_position','add_position','close_position','liquidation') | ✅ | 信号类型 |
 | `coin` | varchar(20) | ✅ | 币种 |
@@ -783,7 +786,52 @@ CREATE ALGORITHM=UNDEFINED DEFINER=`admin`@`%` SQL SECURITY DEFINER VIEW `v_orde
 
 ---
 
+---
+
+## hl_strategies
+
+**说明**: 策略配置持久化（v0.2.0 新增）
+
+| 字段 | 类型 | NOT NULL | 说明 |
+|------|------|---------|------|
+| `id` | bigint | ✅ | 主键 |
+| `strategy_id` | varchar(64) | ✅ | 策略唯一ID（外部传入）|
+| `name` | varchar(100) | ✅ | 策略名称 |
+| `description` | varchar(500) | ❌ | 策略描述 |
+| `status` | enum('active','stopped') | ✅ | 策略状态 |
+| `filter_params` | JSON | ✅ | 筛选参数快照 |
+| `address_count` | int | ✅ | 当前监控地址+币种对数量 |
+| `created_at` | datetime | ✅ | 首次创建时间 |
+| `updated_at` | datetime | ✅ | 最后更新时间 |
+| `started_at` | datetime | ✅ | 最后一次启动时间 |
+| `stopped_at` | datetime | ❌ | 最后一次停止时间 |
+
+---
+
+## hl_strategy_addresses
+
+**说明**: 策略↔地址+币种关联（v0.2.0 新增）
+
+| 字段 | 类型 | NOT NULL | 说明 |
+|------|------|---------|------|
+| `id` | bigint | ✅ | 主键 |
+| `strategy_id` | varchar(64) | ✅ | 关联策略ID |
+| `address` | varchar(66) | ✅ | 钉包地址 |
+| `coin` | varchar(20) | ✅ | 监控币种 |
+| `score` | decimal(5,2) | ❌ | 加入时的评分快照 |
+| `level` | char(2) | ❌ | 加入时的等级快照 L1/L2/L3/L4 |
+| `included_at` | datetime | ✅ | 加入监控时间 |
+| `excluded_at` | datetime | ❌ | 移出时间（NULL=当前有效）|
+| `exclude_reason` | varchar(100) | ❌ | 移出原因: score_drop/filter_change/strategy_stopped/manual |
+| `created_at` | datetime | ✅ | - |
+
+---
+
 ## 📝 维护日志
+
+### 2026-04-27
+- ✅ 新增 表 `hl_strategies`、`hl_strategy_addresses`
+- ✅ `hl_reverse_signals`、`hl_follow_trades` 新增 `strategy_id` 字段
 
 ### 2026-04-09
 - ✅ 从数据库自动同步表结构
