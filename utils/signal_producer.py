@@ -43,6 +43,8 @@ def _get_client():
             password=REDIS_CONNECTION.get('password', ''),
             db=REDIS_CONNECTION.get('db', 0),
             decode_responses=True,
+            ssl=True,
+            ssl_cert_reqs='none',
             socket_connect_timeout=5,
             socket_timeout=5,
         )
