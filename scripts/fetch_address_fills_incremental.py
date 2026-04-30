@@ -15,8 +15,9 @@ from typing import List, Dict, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.db_utils import get_connection
 
+from utils.db_utils import get_onchain_connection
+from utils.db_utils import get_connection
 # Hyperliquid API
 HYPERLIQUID_API_URL = "https://api.hyperliquid.xyz/info"
 
@@ -28,7 +29,7 @@ def get_last_fill_time(address: str) -> Optional[int]:
     Returns:
         最新时间戳（毫秒），如果没有数据则返回 None
     """
-    conn = get_connection()
+    conn = get_onchain_connection()
     cursor = conn.cursor()
 
     try:
@@ -188,7 +189,7 @@ def upsert_fills_batch(address: str, fills: List[Dict]) -> Dict[str, int]:
     print(f"\n💾 正在批量保存到数据库（UPSERT 模式）...")
     print(f"   总数: {len(fills)} 条")
 
-    conn = get_connection()
+    conn = get_onchain_connection()
     cursor = conn.cursor()
 
     try:

@@ -48,14 +48,14 @@ class FilterParams(BaseModel):
         description="最低平均杠杆，不传=不限",
     )
     trades_7d_min: Optional[int] = Field(
-        default=None,
+        default=7,
         ge=0,
-        description="近7天最少交易次数，不传=不限",
+        description="近7天最少交易次数，默认7",
     )
     trades_7d_max: Optional[int] = Field(
-        default=None,
+        default=240,
         ge=0,
-        description="近7天最多交易次数，不传=不限",
+        description="近7天最多交易次数，默认240",
     )
     max_addresses: Optional[int] = Field(
         default=None,
@@ -88,9 +88,44 @@ class StrategyStartRequest(BaseModel):
         max_length=500,
         description="策略描述，可选",
     )
+    fragile_level: Optional[str] = Field(
+        default=None,
+        description="脆弱等级阈值（当前及以下），可选值: L1/L2/L3/L4",
+        examples=["L2"],
+    )
+    single_addr_limit_pct: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="单地址资金上限比例（0-100），仅透传给执行层",
+        examples=[60],
+    )
+    max_addresses: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="最大地址+币种对数量，超出时按 score 倒序截断",
+        examples=[100],
+    )
+    tracked_coins: Optional[List[dict[str, str]]] = Field(
+        default=None,
+        description="允许交易的币种白名单（交易对映射）。格式如: [{\"HYPE\":\"HYPE/USDT:USDT\"},{\"XRP\":\"XRP/USDT:USDT\"}]",
+        examples=[[{"HYPE": "HYPE/USDT:USDT"}, {"XRP": "XRP/USDT:USDT"}]],
+    )
     filter: FilterParams = Field(
         default_factory=FilterParams,
         description="地址筛选参数",
+    )
+
+
+class StrategyStopRequest(BaseModel):
+    """停止策略请求"""
+
+    strategy_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="策略ID",
+        examples=["strategy_001"],
     )
 
 
@@ -119,10 +154,6 @@ class AddressItem(BaseModel):
 
     address: str
     coin: str
-    score: Optional[float]
-    level: Optional[str]
-    included_at: datetime
-    excluded_at: Optional[datetime]
 
 
 class StrategyAddressesResponse(BaseModel):
@@ -131,6 +162,24 @@ class StrategyAddressesResponse(BaseModel):
     strategy_id: str
     status: str
     total: int
-    page: int
-    page_size: int
     addresses: List[AddressItem]
+
+
+class StrategyAddressesRequest(BaseModel):
+    """查询策略监控地址请求（POST body）"""
+
+    strategy_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="策略ID",
+    )
+    coin: Optional[str] = Field(
+        default=None,
+        description="按币种过滤，如 BTC",
+    )
+    level: Optional[str] = Field(
+        default=None,
+        description="按等级过滤，多个用逗号分隔，如 L1,L2",
+        examples=["L1,L2"],
+    )

@@ -7,11 +7,16 @@
 #### 新增功能
 - **FastAPI 策略服务** (`api/`) — 三个接口：启动策略 / 停止策略 / 查询监控地址
   - `POST /strategies/start` — 传参启动，strategy_id 已存在时复用旧记录
-  - `POST /strategies/{id}/stop` — 停止策略，软删除地址关联
-  - `GET /strategies/{id}/addresses` — 分页查询，支持 coin/level 过滤
+  - `POST /strategies/stop` — 停止策略，body 传 strategy_id，软删除地址关联
+  - `POST /strategies/addresses` — 查询策略监控地址，body 传 strategy_id/coin/level
+- 系统接口：`GET /health` => "ok"
 - **筛选参数**：score_min/max、level、win_rate_max、avg_leverage_min（JOIN hl_address_features）、trades_7d_min/max、coins、max_addresses
 - **`scripts/refresh_strategy_addresses.py`** — 每日差量刷新策略地址池（新增/软删除）
 - **`scripts/monitor_strategy.py`** — 策略版独立监控进程，60s reload 策略配置，信号含 strategy_id，预留 Redis publish 接口
+
+#### 文档与脚本清理
+- 移除废弃脚本 `scripts/monitor_signals.py`，统一使用 `scripts/monitor_strategy.py`
+- 更新 `docs/SCRIPTS.md`、`docs/SIGNAL_DESIGN.md`，避免历史方案与现行链路混淆
 
 #### 数据库变更
 - 新增 `hl_strategies`（策略配置持久化）

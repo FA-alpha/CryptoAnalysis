@@ -321,6 +321,7 @@ CREATE TABLE `hl_follow_trades` (
   `direction` varchar(20) NOT NULL COMMENT '方向:Long/Short',
   `action` enum('open','add','reduce','close') NOT NULL COMMENT '操作:开仓/加仓/减仓/平仓',
   `size` decimal(20,8) NOT NULL COMMENT '数量',
+  `margin_used` decimal(20,6) DEFAULT NULL COMMENT '占用保证金(USDC)',
   `entry_price` decimal(20,6) NOT NULL COMMENT '开仓价',
   `close_price` decimal(20,6) DEFAULT NULL COMMENT '平仓价(如果已平仓)',
   `fee` decimal(20,6) NOT NULL COMMENT '手续费',
@@ -353,6 +354,7 @@ CREATE TABLE `hl_follow_trades` (
 | `direction` | varchar(20) | ✅ | 方向:Long/Short |
 | `action` | enum('open','add','reduce','close') | ✅ | 操作:开仓/加仓/减仓/平仓 |
 | `size` | decimal(20,8) | ✅ | 数量 |
+| `margin_used` | decimal(20,6) | ❌ | 占用保证金(USDC) |
 | `entry_price` | decimal(20,6) | ✅ | 开仓价 |
 | `close_price` | decimal(20,6) | ❌ | 平仓价(如果已平仓) |
 | `fee` | decimal(20,6) | ✅ | 手续费 |

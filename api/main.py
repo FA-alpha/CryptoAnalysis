@@ -9,7 +9,10 @@ CryptoAnalysis 策略 API 服务
   nohup venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 18888 > logs/api.log 2>&1 &
 
 接口文档：
-  http://localhost:8000/docs
+  http://localhost:18888/docs
+
+系统接口：
+  GET /health => "ok"
 """
 from __future__ import annotations
 
@@ -54,9 +57,9 @@ app.include_router(strategies_router)
 
 
 @app.get("/health", tags=["system"])
-def health_check() -> dict:
+def health_check() -> str:
     """健康检查"""
-    return {"status": "ok", "version": "0.2.0"}
+    return "ok"
 
 
 @app.on_event("startup")

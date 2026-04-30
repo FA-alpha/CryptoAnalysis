@@ -36,6 +36,7 @@ def start_strategy(
     name: str,
     description: Optional[str],
     filter_params: FilterParams,
+    extra_params: Optional[Dict] = None,
 ) -> StrategyStartResponse:
     """
     启动策略。
@@ -61,6 +62,8 @@ def start_strategy(
     cur = conn.cursor(pymysql.cursors.DictCursor)
     now = datetime.now()
     filter_json = filter_params.model_dump(exclude_none=False)
+    if extra_params:
+        filter_json.update(extra_params)
 
     # ── Step 1: 筛选地址 ──────────────────────────────────
     new_pairs: List[Tuple[str, str, float, str]] = filter_addresses(conn, filter_params)
@@ -296,7 +299,7 @@ def get_strategy_addresses(
     )
     total = cur.fetchone()["cnt"]
 
-    # 分页数据
+    # 分页数据（内部分页；响应只返回 address/coin）
     offset = (page - 1) * page_size
     cur.execute(
         f"""
@@ -314,10 +317,6 @@ def get_strategy_addresses(
         AddressItem(
             address=r["address"],
             coin=r["coin"],
-            score=float(r["score"]) if r["score"] is not None else None,
-            level=r["level"],
-            included_at=r["included_at"],
-            excluded_at=r["excluded_at"],
         )
         for r in rows
     ]
@@ -326,7 +325,5 @@ def get_strategy_addresses(
         strategy_id=strategy_id,
         status=strategy_status,
         total=total,
-        page=page,
-        page_size=page_size,
         addresses=addresses,
     )

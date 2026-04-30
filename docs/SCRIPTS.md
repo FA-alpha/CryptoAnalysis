@@ -16,9 +16,8 @@ scripts/
 ├── calculate_fragile_scores.py          # 脆弱地址评分 v2（当前使用）⭐
 ├── update_fragile_pool.py               # 脆弱地址池入池/出池管理 ⭐ 每日评分后运行
 ├── monitor_combined.py                  # HTTP串行轮询监控（无策略版，保留）⭐
-├── monitor_strategy.py                  # 策略版监控服务（独立进程，读策略地址池，信号含strategy_id）⭐ 新增
-├── refresh_strategy_addresses.py        # 策略地址池每日刷新（差量更新，每日07:00北京时间）⭐ 新增
-├── monitor_signals.py                   # （已废弃，由 monitor_combined.py 替代）
+├── monitor_strategy.py                  # 策略版监控服务（独立进程，读策略地址池，信号含strategy_id）⭐
+├── refresh_strategy_addresses.py        # 策略地址池每日刷新（差量更新，每日07:00北京时间）⭐
 └── monitor_ws.py                        # （已废弃，由 monitor_combined.py 替代）
 ```
 

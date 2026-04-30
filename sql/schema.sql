@@ -114,6 +114,7 @@ CREATE TABLE `hl_follow_trades` (
   `direction` varchar(20) NOT NULL COMMENT '方向:Long/Short',
   `action` enum('open','add','reduce','close') NOT NULL COMMENT '操作:开仓/加仓/减仓/平仓',
   `size` decimal(20,8) NOT NULL COMMENT '数量',
+  `margin_used` decimal(20,6) DEFAULT NULL COMMENT '占用保证金(USDC)',
   `entry_price` decimal(20,6) NOT NULL COMMENT '开仓价',
   `close_price` decimal(20,6) DEFAULT NULL COMMENT '平仓价(如果已平仓)',
   `fee` decimal(20,6) NOT NULL COMMENT '手续费',
@@ -282,6 +283,20 @@ CREATE TABLE `hl_reverse_signals` (
   KEY `idx_coin` (`coin`),
   KEY `idx_generated_at` (`generated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='反向跟单信号';
+
+-- Table: hl_monitor_cursors
+DROP TABLE IF EXISTS `hl_monitor_cursors`;
+CREATE TABLE `hl_monitor_cursors` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `address` varchar(66) NOT NULL COMMENT '钱包地址',
+  `last_fill_time` bigint DEFAULT NULL COMMENT '最后处理的 fill 时间戳(ms)',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_address` (`address`),
+  KEY `idx_last_fill_time` (`last_fill_time`),
+  KEY `idx_updated_at` (`updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='全局监控游标（address）';
 
 -- View: v_order_summary
 CREATE ALGORITHM=UNDEFINED DEFINER=`admin`@`%` SQL SECURITY DEFINER VIEW `v_order_summary` AS select `hl_fills`.`address` AS `address`,`hl_fills`.`oid` AS `oid`,`hl_fills`.`hash` AS `hash`,`hl_fills`.`coin` AS `coin`,`hl_fills`.`dir` AS `dir`,count(0) AS `fill_count`,sum(`hl_fills`.`sz`) AS `total_sz`,avg(`hl_fills`.`px`) AS `avg_px`,sum(`hl_fills`.`fee`) AS `total_fee`,sum(`hl_fills`.`closed_pnl`) AS `total_pnl`,min(`hl_fills`.`time`) AS `first_fill_time`,max(`hl_fills`.`time`) AS `last_fill_time`,min(`hl_fills`.`start_position`) AS `start_position`,(min(`hl_fills`.`start_position`) + (case when (`hl_fills`.`dir` like '%Long') then sum(`hl_fills`.`sz`) when (`hl_fills`.`dir` like '%Short') then -(sum(`hl_fills`.`sz`)) else 0 end)) AS `end_position`,max(`hl_fills`.`crossed`) AS `is_crossed` from `hl_fills` group by `hl_fills`.`address`,`hl_fills`.`oid`,`hl_fills`.`hash`,`hl_fills`.`coin`,`hl_fills`.`dir`;

@@ -1,7 +1,13 @@
-# 交易信号生成设计文档
+# 交易信号生成设计文档（历史方案）
 
-> 状态：草稿（待 Aylwin 确认后开始编码）  
-> 更新：2026-04-22
+> 状态：历史草稿（已由策略版方案替代）  
+> 更新：2026-04-30
+>
+> 当前生效主链路：
+> - `scripts/monitor_strategy.py`
+> - `hl_strategies` / `hl_strategy_addresses` / `hl_reverse_signals`
+>
+> 本文档保留用于历史决策追溯，不再作为当前实现依据。
 
 ---
 
@@ -175,7 +181,7 @@ FOR EACH active address+coin IN hl_monitor_addresses:
 
 | 脚本 | 说明 |
 |------|------|
-| `scripts/monitor_signals.py` | 主监控脚本，轮询生成信号 + 推送通知 |
+| `scripts/monitor_strategy.py` | 主监控脚本，按策略地址池轮询生成信号并写入 Redis + `hl_reverse_signals` |
 | `scripts/manage_monitor_addresses.py` | 管理监控地址（增删改查） |
 
 ---

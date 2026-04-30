@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import sys
@@ -39,15 +40,17 @@ import pymysql.cursors
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.db_utils import get_connection
+from utils.signal_producer import send_signal
 
 # ============================================================
 # 配置
 # ============================================================
 HL_API_URL               = "https://api.hyperliquid.xyz/info"
 HTTP_REQUEST_TIMEOUT     = 15        # 单次请求超时（秒）
-HTTP_MIN_INTERVAL_MS     = 1000      # 两次请求最小间隔（毫秒）
+HTTP_MIN_INTERVAL_MS     = 900      # 两次请求最小间隔（毫秒）
 HTTP_429_BACKOFF         = [10, 30, 60]
 STRATEGY_RELOAD_INTERVAL = 60        # 策略配置重新加载间隔（秒）
+FILL_LOOKBACK_MS         = 300_000   # 无 last_fill_time 时的回退窗口（毫秒）
 
 # ============================================================
 # 日志
@@ -62,6 +65,9 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+# 降噪：关闭 httpx/httpcore 成功请求 INFO 日志，仅保留 warning/error
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 # ============================================================
@@ -76,15 +82,17 @@ class StrategyPoolState:
       address_coin_strategies: {(address, coin) -> set of strategy_ids}
         — 某个 address+coin 对被哪些策略监控
 
-      addr_info: {address -> {coins, last_fill_time: {coin -> ms}}}
-        — 地址运行时状态（last_fill_time 来自 hl_strategy_addresses 初始化，运行时更新）
+      addr_info: {address -> {coins, last_fill_time: ms | None}}
+        — 地址运行时状态（last_fill_time 来自 hl_monitor_cursors 初始化，运行时更新）
     """
 
     def __init__(self) -> None:
         # (address, coin) -> set[strategy_id]
         self.address_coin_strategies: Dict[Tuple[str, str], Set[str]] = {}
-        # address -> {coins: set, last_fill_time: {coin: ms | None}}
+        # address -> {coins: set, last_fill_time: ms | None}
         self.addr_info: Dict[str, Dict] = {}
+        # strategy_id -> {"single_addr_limit_pct": float|None, "coin_symbol_map": {coin: symbol}}
+        self.strategy_params: Dict[str, Dict] = {}
 
     @property
     def all_addresses(self) -> List[str]:
@@ -103,8 +111,8 @@ def load_strategy_pool() -> StrategyPoolState:
     """
     从 hl_strategy_addresses 加载所有活跃策略的地址+币种对。
 
-    合并规则：多个策略监控同一 (address, coin) 时合并为一条监控记录，
-    last_fill_time 取最小值（保守起点，避免漏信号）。
+    游标表 `hl_monitor_cursors` 为 address-only：
+      - 同一 address 的 last_fill_time 对所有 coins 共用。
 
     Returns:
         StrategyPoolState
@@ -112,6 +120,17 @@ def load_strategy_pool() -> StrategyPoolState:
     conn = get_connection()
     cur = conn.cursor(pymysql.cursors.DictCursor)
     try:
+        # 先确保所有 active 的 address 在游标表里存在
+        cur.execute("""
+            INSERT IGNORE INTO hl_monitor_cursors (address, last_fill_time)
+            SELECT DISTINCT sa.address, NULL
+            FROM hl_strategy_addresses sa
+            JOIN hl_strategies s ON sa.strategy_id = s.strategy_id
+            WHERE s.status = 'active'
+              AND sa.excluded_at IS NULL
+        """)
+        conn.commit()
+
         cur.execute("""
             SELECT
                 sa.strategy_id,
@@ -119,11 +138,12 @@ def load_strategy_pool() -> StrategyPoolState:
                 sa.coin,
                 sa.score,
                 sa.level,
-                fp.last_fill_time
+                mc.last_fill_time,
+                s.filter_params
             FROM hl_strategy_addresses sa
             JOIN hl_strategies s ON sa.strategy_id = s.strategy_id
-            LEFT JOIN hl_fragile_pool fp
-                ON sa.address = fp.address AND sa.coin = fp.coin
+            LEFT JOIN hl_monitor_cursors mc
+                ON sa.address = mc.address
             WHERE s.status = 'active'
               AND sa.excluded_at IS NULL
             ORDER BY sa.address, sa.coin
@@ -139,7 +159,7 @@ def load_strategy_pool() -> StrategyPoolState:
         addr = row["address"]
         coin = row["coin"]
         sid  = row["strategy_id"]
-        lft  = row["last_fill_time"]  # 可能为 None
+        lft  = row["last_fill_time"]  # 可能为 None（来自 hl_monitor_cursors）
 
         # address_coin_strategies
         key = (addr, coin)
@@ -151,16 +171,42 @@ def load_strategy_pool() -> StrategyPoolState:
         if addr not in state.addr_info:
             state.addr_info[addr] = {
                 "coins": set(),
-                "last_fill_time": {},
+                "last_fill_time": None,
             }
         state.addr_info[addr]["coins"].add(coin)
 
-        # last_fill_time：多策略时取最小值（保守）
-        existing_lft = state.addr_info[addr]["last_fill_time"].get(coin)
-        if existing_lft is None:
-            state.addr_info[addr]["last_fill_time"][coin] = lft
-        elif lft is not None and lft < existing_lft:
-            state.addr_info[addr]["last_fill_time"][coin] = lft
+        # last_fill_time：address-only，直接赋值（不同 coin 下值相同）
+        if state.addr_info[addr]["last_fill_time"] is None and lft is not None:
+            state.addr_info[addr]["last_fill_time"] = lft
+
+        # 策略参数：透传执行层使用（单地址投入上限比例 + coin->symbol 映射）
+        if sid not in state.strategy_params:
+            single_addr_limit_pct = None
+            coin_symbol_map: Dict[str, str] = {}
+            fp_raw = row.get("filter_params")
+            if fp_raw:
+                try:
+                    fp_obj = json.loads(fp_raw) if isinstance(fp_raw, str) else fp_raw
+                    v = fp_obj.get("single_addr_limit_pct")
+                    if v is not None:
+                        single_addr_limit_pct = float(v)
+
+                    # tracked_coins: {COIN: "COIN/USDT:USDT"} 或 [{COIN: "..."}]
+                    tracked = fp_obj.get("tracked_coins")
+                    if isinstance(tracked, dict):
+                        coin_symbol_map = {str(k): str(val) for k, val in tracked.items()}
+                    elif isinstance(tracked, list):
+                        for item in tracked:
+                            if isinstance(item, dict) and len(item) == 1:
+                                (k, val), = item.items()
+                                coin_symbol_map[str(k)] = str(val)
+                except Exception:
+                    # 参数解析失败不阻断主流程
+                    pass
+            state.strategy_params[sid] = {
+                "single_addr_limit_pct": single_addr_limit_pct,
+                "coin_symbol_map": coin_symbol_map,
+            }
 
     active_strategies = {
         sid
@@ -174,6 +220,38 @@ def load_strategy_pool() -> StrategyPoolState:
         state.total_pairs,
     )
     return state
+
+
+def upsert_monitor_cursors(updates: List[Tuple[str, int]]) -> None:
+    """
+    批量更新全局游标表（address）。
+    仅前进不回退：写入值与现有值取较大者。
+    """
+    if not updates:
+        return
+
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.executemany(
+            """
+            INSERT INTO hl_monitor_cursors (address, last_fill_time)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE
+                last_fill_time = CASE
+                    WHEN last_fill_time IS NULL THEN VALUES(last_fill_time)
+                    ELSE GREATEST(last_fill_time, VALUES(last_fill_time))
+                END
+            """,
+            updates,
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("更新 hl_monitor_cursors 失败: %s", e)
+    finally:
+        cur.close()
+        conn.close()
 
 
 # ============================================================
@@ -202,12 +280,12 @@ def save_signal(
     side: str,
     fill_time: int,
     fill_hash: Optional[str],
-) -> bool:
+) -> Tuple[bool, str]:
     """
     写入 hl_reverse_signals（含 strategy_id），重复跳过。
 
     Returns:
-        True = 新信号, False = 已存在
+        (是否新信号, signal_id)
     """
     type_map = {
         "open":   "new_position",
@@ -250,11 +328,11 @@ def save_signal(
                 action,
                 price,
             )
-        return inserted
+        return inserted, signal_id
     except Exception as e:
         conn.rollback()
         logger.error("保存信号失败: %s", e, exc_info=True)
-        return False
+        return False, signal_id
     finally:
         cur.close()
         conn.close()
@@ -262,16 +340,95 @@ def save_signal(
 
 def publish_to_redis(strategy_id: str, signal_data: dict) -> None:
     """
-    TODO: 将信号写入 Redis。
-    Redis 连接配置由调用方补充。
-
-    暂时只记录日志，待 Redis 配置补全后实现。
+    将信号写入 Redis Stream（fa:signal）。
     """
-    logger.debug(
-        "[Redis TODO] strategy=%s signal=%s",
-        strategy_id,
-        signal_data,
+    action = str(signal_data.get("action", "")).lower()
+    side = str(signal_data.get("side", "")).upper()
+    symbol = str(signal_data.get("symbol", "")).strip()
+    signal_id = str(signal_data.get("signal_id", "")).strip()
+
+    # action + side -> 执行层 signal_type（基于反向策略语义）
+    signal_type = None
+    if action == "open" and side == "B":
+        signal_type = "entry_short"
+    elif action == "open" and side == "A":
+        signal_type = "entry_long"
+    elif action == "close" and side == "B":
+        signal_type = "exit_short"
+    elif action == "close" and side == "A":
+        signal_type = "exit_long"
+
+    if not signal_type or not symbol or not signal_id:
+        logger.warning(
+            "Redis信号跳过: strategy=%s signal_id=%s action=%s side=%s symbol=%s",
+            strategy_id,
+            signal_id,
+            action,
+            side,
+            symbol,
+        )
+        return
+
+    data = {
+        "address": signal_data.get("address"),
+        "price": signal_data.get("price"),
+        "size": signal_data.get("size"),
+        "fill_time": signal_data.get("fill_time"),
+        "generated_at": signal_data.get("generated_at"),
+    }
+    message_id = send_signal(
+        strategy_id=strategy_id,
+        symbol=symbol,
+        signal_type=signal_type,
+        signal_id=signal_id,
+        data=data,
     )
+    if message_id:
+        logger.info(
+            "Redis信号已发送: strategy=%s signal_id=%s message_id=%s type=%s",
+            strategy_id,
+            signal_id,
+            message_id,
+            signal_type,
+        )
+
+
+def query_current_margin_used(strategy_id: str, source_address: str, coin: str) -> float:
+    """
+    查询当前 strategy+address+coin 已占用保证金（来自 hl_follow_trades.margin_used）。
+
+    说明：
+      - 仅 SUM(margin_used)；callback 写入前该字段可能全为 NULL，汇总结果为 0。
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT COALESCE(SUM(margin_used), 0)
+            FROM hl_follow_trades
+            WHERE strategy_id = %s
+              AND source_address = %s
+              AND coin = %s
+              AND trade_status = 'open'
+            """,
+            (strategy_id, source_address, coin),
+        )
+        row = cur.fetchone()
+        return float(row[0] or 0)
+    except Exception as e:
+        logger.warning(
+            "查询当前 margin_used 失败: strategy=%s addr=%s...%s coin=%s err=%s",
+            strategy_id,
+            source_address[:6],
+            source_address[-4:],
+            coin,
+            e,
+        )
+        return 0.0
+    finally:
+        cur.close()
+        conn.close()
 
 
 # ============================================================
@@ -290,6 +447,9 @@ def parse_action(direction: str) -> Optional[str]:
         return "open"
     if "close" in d:
         return "close"
+    # 爆仓也按平仓信号处理（例如：Liquidated Cross/Isolated Long/Short）
+    if "liquidated" in d:
+        return "close"
     return None
 
 
@@ -303,7 +463,14 @@ async def process_fills(
     pool_state: StrategyPoolState,
 ) -> int:
     """
-    处理 fill 列表，对每条 fill 遍历所有关联策略写信号。
+    处理 fill 列表，按 address+coin 批内汇总后再生成信号。
+
+    汇总规则（单个 coin）：
+      - 统计 open_count / close_count
+      - close_count > open_count => 生成 close
+      - open_count > close_count => 生成 open
+      - 二者相等 => 跳过（方向不明确）
+      - price/size/side/fill_time/fill_hash 取“胜出方向”里最新一笔
 
     Args:
         fills: API 返回的 fill 列表
@@ -319,18 +486,15 @@ async def process_fills(
     addr_info = pool_state.addr_info[address]
     new_count = 0
 
-    for fill in fills:
-        coin      = fill.get("coin", "")
-        side      = fill.get("side", "")
-        direction = fill.get("dir", "")
-        price     = float(fill.get("px", 0))
-        size      = float(fill.get("sz", 0))
-        fill_time = int(fill.get("time", 0))
-        fill_hash = fill.get("hash") or None
+    # coin -> 聚合结果
+    coin_agg: Dict[str, Dict] = {}
 
+    for fill in fills:
+        coin = str(fill.get("coin", "")).strip()
         if coin not in addr_info["coins"]:
             continue
 
+        direction = str(fill.get("dir", ""))
         action = parse_action(direction)
         if not action:
             logger.debug(
@@ -341,42 +505,112 @@ async def process_fills(
             )
             continue
 
+        fill_time = int(fill.get("time", 0))
+        item = {
+            "side": str(fill.get("side", "")),
+            "price": float(fill.get("px", 0)),
+            "size": float(fill.get("sz", 0)),
+            "fill_time": fill_time,
+            "fill_hash": fill.get("hash") or None,
+        }
+
+        if coin not in coin_agg:
+            coin_agg[coin] = {
+                "open_count": 0,
+                "close_count": 0,
+                "latest_open": None,
+                "latest_close": None,
+                "max_fill_time": 0,
+            }
+        agg = coin_agg[coin]
+        agg["max_fill_time"] = max(agg["max_fill_time"], fill_time)
+
+        if action == "open":
+            agg["open_count"] += 1
+            latest_open = agg["latest_open"]
+            if latest_open is None or item["fill_time"] >= latest_open["fill_time"]:
+                agg["latest_open"] = item
+        else:
+            agg["close_count"] += 1
+            latest_close = agg["latest_close"]
+            if latest_close is None or item["fill_time"] >= latest_close["fill_time"]:
+                agg["latest_close"] = item
+
+    for coin, agg in coin_agg.items():
+        open_count = int(agg["open_count"])
+        close_count = int(agg["close_count"])
+
+        if open_count == close_count:
+            logger.info(
+                "[HTTP] 汇总后跳过: addr=%s...%s coin=%s open=%d close=%d",
+                address[:6],
+                address[-4:],
+                coin,
+                open_count,
+                close_count,
+            )
+            continue
+
+        action = "open" if open_count > close_count else "close"
+        selected = agg["latest_open"] if action == "open" else agg["latest_close"]
+        if not selected:
+            continue
+
+        logger.info(
+            "[HTTP] 汇总结果: addr=%s...%s coin=%s action=%s open=%d close=%d price=%.6f size=%.8f",
+            address[:6],
+            address[-4:],
+            coin,
+            action,
+            open_count,
+            close_count,
+            float(selected["price"]),
+            float(selected["size"]),
+        )
+
         # 获取关注这个 (address, coin) 的所有策略
         strategy_ids = pool_state.address_coin_strategies.get((address, coin), set())
         if not strategy_ids:
             continue
 
         for strategy_id in strategy_ids:
-            is_new = save_signal(
+            current_margin_used = query_current_margin_used(
+                strategy_id=strategy_id,
+                source_address=address,
+                coin=coin,
+            )
+            strategy_cfg = pool_state.strategy_params.get(strategy_id, {})
+            is_new, signal_id = save_signal(
                 strategy_id=strategy_id,
                 address=address,
                 coin=coin,
                 action=action,
-                price=price,
-                size=size,
-                side=side,
-                fill_time=fill_time,
-                fill_hash=fill_hash,
+                price=float(selected["price"]),
+                size=float(selected["size"]),
+                side=str(selected["side"]),
+                fill_time=int(selected["fill_time"]),
+                fill_hash=selected["fill_hash"],
             )
             if is_new:
                 signal_data = {
+                    "signal_id": signal_id,
                     "strategy_id": strategy_id,
                     "address": address,
-                    "coin": coin,
+                    "symbol": (strategy_cfg.get("coin_symbol_map") or {}).get(
+                        coin, f"{coin}/USDT:USDT"
+                    ),
                     "action": action,
-                    "side": side,
-                    "price": price,
-                    "size": size,
-                    "fill_time": fill_time,
+                    "side": str(selected["side"]),
+                    "price": float(selected["price"]),
+                    "size": float(selected["size"]),
+                    "fill_time": int(selected["fill_time"]),
+                    "current_margin_used": current_margin_used,
+                    # 新口径：按 strategy+address+coin 暴露控制
+                    "max_alloc_pct_per_address_coin": strategy_cfg.get("single_addr_limit_pct"),
                     "generated_at": datetime.now().isoformat(),
                 }
                 publish_to_redis(strategy_id, signal_data)
                 new_count += 1
-
-        # 更新 last_fill_time（运行时状态）
-        existing_lft = addr_info["last_fill_time"].get(coin) or 0
-        if fill_time > existing_lft:
-            addr_info["last_fill_time"][coin] = fill_time
 
     return new_count
 
@@ -389,7 +623,7 @@ async def http_fetch_fills(
     client: httpx.AsyncClient,
     address: str,
     start_time_ms: int,
-) -> List[dict]:
+) -> Optional[List[dict]]:
     """
     拉取单地址增量 fills（userFillsByTime）。
     遇到 429 按退避序列重试。
@@ -431,20 +665,39 @@ async def http_fetch_fills(
                 await asyncio.sleep(retry_after)
                 continue
             resp.raise_for_status()
-            return resp.json() or []
+            fills = resp.json() or []
+            if fills:
+                preview = [
+                    {
+                        "coin": f.get("coin"),
+                        "dir": f.get("dir"),
+                        "side": f.get("side"),
+                        "size": f.get("sz"),
+                        "time": f.get("time"),
+                    }
+                    for f in fills[:3]
+                ]
+                logger.info(
+                    "[HTTP] fills返回 addr=%s...%s count=%d preview=%s",
+                    address[:6],
+                    address[-4:],
+                    len(fills),
+                    preview,
+                )
+            return fills
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 w = HTTP_429_BACKOFF[min(attempt, len(HTTP_429_BACKOFF) - 1)]
                 await asyncio.sleep(w)
                 continue
             logger.warning("[HTTP] 请求失败 addr=%s: %s", address[:10], e)
-            return []
+            return None
         except Exception as e:
             logger.warning("[HTTP] 请求失败 addr=%s: %s", address[:10], e)
-            return []
+            return None
 
     logger.error("[HTTP] addr=%s 重试耗尽，跳过", address[:10])
-    return []
+    return None
 
 
 # ============================================================
@@ -479,6 +732,7 @@ async def run_http_poll(pool_ref: list, once: bool = False) -> None:
                 continue
 
             round_start_ms = int(_time.time() * 1000)
+            logger.info("[HTTP] 开始轮询地址中... 本轮地址=%d", len(all_addrs))
 
             for address in all_addrs:
                 pool_state = pool_ref[0]
@@ -487,20 +741,12 @@ async def run_http_poll(pool_ref: list, once: bool = False) -> None:
 
                 addr_info = pool_state.addr_info[address]
 
-                # 起始时间：取各监控 coin 的 last_fill_time 最小值
-                min_lft: Optional[int] = None
-                for coin in addr_info["coins"]:
-                    lft = addr_info["last_fill_time"].get(coin)
-                    if lft is None:
-                        min_lft = None
-                        break
-                    if min_lft is None or lft < min_lft:
-                        min_lft = lft
-
-                start_ms = (min_lft + 1) if min_lft else (int(_time.time() * 1000) - 60_000)
+                # 起始时间：address-only cursor
+                lft = addr_info["last_fill_time"]
+                now_ms = int(_time.time() * 1000)
+                start_ms = (lft + 1) if lft is not None else (now_ms - FILL_LOOKBACK_MS)
 
                 # 毫秒间隔控制
-                now_ms = int(_time.time() * 1000)
                 elapsed = now_ms - last_req_ms
                 if elapsed < HTTP_MIN_INTERVAL_MS:
                     await asyncio.sleep((HTTP_MIN_INTERVAL_MS - elapsed) / 1000)
@@ -508,6 +754,14 @@ async def run_http_poll(pool_ref: list, once: bool = False) -> None:
                 last_req_ms = int(_time.time() * 1000)
                 fills = await http_fetch_fills(client, address, start_ms)
                 last_req_ms = int(_time.time() * 1000)
+
+                if fills is None:
+                    continue
+
+                # 请求成功：保存 address 级最新时间（不依赖 fills 是否为空）
+                cursor_now_ms = int(_time.time() * 1000)
+                addr_info["last_fill_time"] = cursor_now_ms
+                upsert_monitor_cursors([(address, cursor_now_ms)])
 
                 if fills:
                     new_cnt = await process_fills(fills, address, pool_state)
