@@ -20,10 +20,10 @@ class FilterParams(BaseModel):
         examples=[["BTC", "ETH"]],
     )
     score_min: float = Field(
-        default=60.0,
+        default=30.0,
         ge=0,
         le=100,
-        description="最低评分，默认60",
+        description="最低评分，默认30",
     )
     score_max: float = Field(
         default=100.0,
@@ -48,14 +48,14 @@ class FilterParams(BaseModel):
         description="最低平均杠杆，不传=不限",
     )
     trades_7d_min: Optional[int] = Field(
-        default=7,
+        default=None,
         ge=0,
-        description="近7天最少交易次数，默认7",
+        description="近7天最少交易次数",
     )
     trades_7d_max: Optional[int] = Field(
-        default=240,
+        default=None,
         ge=0,
-        description="近7天最多交易次数，默认240",
+        description="近7天最多交易次数",
     )
     max_addresses: Optional[int] = Field(
         default=None,
